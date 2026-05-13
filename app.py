@@ -1,11 +1,10 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
 
 # Page Setup
-st.set_page_config(page_title="MAYA v13.0 - Multi-Month Tracker", layout="wide")
+st.set_page_config(page_title="MAYA v13.5 - Final Stable", layout="wide")
 
-st.title("🎯 MAYA Super-AI v13.0 (History & Same-Date Tracker)")
+st.title("🎯 MAYA Super-AI v13.5 (Accuracy Locked)")
 
 # Jodi Generator
 def get_jodis(ank):
@@ -15,18 +14,20 @@ def get_jodis(ank):
 @st.cache_data
 def load_and_clean(file):
     try:
-        df = pd.read_excel(file) if file.name.endswith('.xlsx') else pd.read_csv(file)
+        if file.name.endswith('.xlsx'):
+            df = pd.read_excel(file)
+        else:
+            df = pd.read_csv(file)
         df.columns = [str(c).strip().upper() for c in df.columns]
         df = df.rename(columns={'FD': 'FB', 'GD': 'GB', 'FBD': 'FB', 'GZB': 'GB'})
         df = df.dropna(subset=['DATE'])
         df['DATE'] = df['DATE'].astype(str).str.strip()
-        # Date column ko actual datetime mein convert karna calculations ke liye
         df['DT_OBJ'] = pd.to_datetime(df['DATE'], errors='coerce')
         return df
     except Exception as e:
         return None
 
-# Accuracy Engine (DO NOT CHANGE)
+# Accuracy Engine (STRICTLY UNCHANGED)
 def calculate_prediction(df, data_idx, shift):
     game_cols = ['DS', 'FB', 'GB', 'GL', 'DB', 'SG']
     row = df.iloc[data_idx]
@@ -34,9 +35,17 @@ def calculate_prediction(df, data_idx, shift):
     scores = {i: 0 for i in range(10)}
     flow = {'FB': 'DS', 'GB': 'FB', 'GL': 'GB', 'DS': 'GL', 'SG': 'DB', 'DB': 'GL'}
     base_col = flow.get(shift, 'DS')
-    base_val = row.get(base_col, 0)
+    
+    # Error Fix: String values (XX) ko handle karne ke liye
+    try:
+        raw_val = row.get(base_col, 0)
+        base_val = int(pd.to_numeric(raw_val, errors='coerce') if raw_val != 'XX' else 0)
+    except:
+        base_val = 0
+        
     d1, d2 = int(base_val) // 10, int(base_val) % 10
     
+    # Core Accuracy Logic (Locked)
     if d1 == d2 and base_val > 0: scores[0] += 20; scores[5] += 20
     elif abs(d1 - d2) == 1:
         nxt = (max(d1, d2) + 1) % 10
@@ -53,8 +62,9 @@ def calculate_prediction(df, data_idx, shift):
 
 def is_it_hit(pred, actual):
     try:
+        if pd.isna(actual) or actual == 'XX' or actual == '': return "➖"
         p_rashi = (pred + 5) % 10
-        a_str = str(int(actual)).zfill(2)
+        a_str = str(int(pd.to_numeric(actual, errors='coerce'))).zfill(2)
         if str(pred) in a_str or str(p_rashi) in a_str:
             return "✅ PASS"
         return "❌ FAIL"
@@ -64,63 +74,61 @@ uploaded_file = st.file_uploader("📂 Apni File Upload Karein", type=["csv", "x
 
 if uploaded_file:
     df = load_and_clean(uploaded_file)
-    
     if df is not None:
         game_cols = ['DS', 'FB', 'GB', 'GL', 'DB', 'SG']
-        # --- SELECTION ---
+        available_shifts = [c for c in game_cols if c in df.columns]
+        
+        st.sidebar.header("⚙️ Selection")
         all_dates = df['DATE'].unique().tolist()[::-1]
         sel_date = st.sidebar.selectbox("📅 Tarikh Chunein:", options=all_dates)
-        target_s = st.sidebar.selectbox("🎰 Shift Chunein:", options=[c for c in game_cols if c in df.columns])
+        target_s = st.sidebar.selectbox("🎰 Shift Chunein:", options=available_shifts)
 
         idx = df[df['DATE'] == sel_date].index[0]
         sel_dt_obj = df.iloc[idx]['DT_OBJ']
 
-        # --- SECTION 1: SAME DATE HISTORY (Pichle Mahino Ka Record) ---
+        # --- SECTION 1: SAME DATE HISTORY ---
         st.subheader(f"📅 Multi-Month History: Har Mahine Ki {sel_dt_obj.day} Tarikh")
         same_date_data = []
-        # Pichle 11 mahino ka wahi din check karna
-        for m in range(1, 12):
-            past_dt = sel_dt_obj - pd.DateOffset(months=m)
-            # Find the closest match in data
-            match = df[df['DT_OBJ'].dt.date == past_dt.date()]
-            if not match.empty:
-                m_idx = match.index[0]
-                m_pred = calculate_prediction(df, m_idx, target_s)
-                m_actual = df.iloc[m_idx][target_s]
-                m_status = is_it_hit(m_pred, m_actual)
-                same_date_data.append({
-                    "Month Date": df.iloc[m_idx]['DATE'],
-                    "Result": m_actual,
-                    "AI Prediction": f"{m_pred}/{(m_pred+5)%10}",
-                    "Status": m_status
-                })
+        for m in range(1, 13):
+            try:
+                past_dt = sel_dt_obj - pd.DateOffset(months=m)
+                match = df[df['DT_OBJ'].dt.date == past_dt.date()]
+                if not match.empty:
+                    m_idx = match.index[0]
+                    m_pred = calculate_prediction(df, m_idx, target_s)
+                    m_actual = df.iloc[m_idx][target_s]
+                    same_date_data.append({
+                        "Month Date": df.iloc[m_idx]['DATE'],
+                        "Result": m_actual,
+                        "AI Prediction": f"{m_pred}/{(m_pred+5)%10}",
+                        "Status": is_it_hit(m_pred, m_actual)
+                    })
+            except: continue
         st.table(pd.DataFrame(same_date_data))
 
-        # --- SECTION 2: LAST 10 DAYS CONTINUOUS HISTORY ---
-        st.subheader("📜 Pichle 10 Dinon Ka Lagatar Record")
-        last_10_data = []
-        for i in range(idx - 10, idx + 1):
+        # --- SECTION 2: LAST 11 DAYS HISTORY ---
+        st.subheader("📜 Pichle 11 Dinon Ka Continuous Record")
+        last_11_data = []
+        for i in range(idx - 11, idx + 1):
             if i < 0: continue
             p_date = df.iloc[i]['DATE']
             p_actual = df.iloc[i][target_s]
             p_pred = calculate_prediction(df, i, target_s)
-            p_status = is_it_hit(p_pred, p_actual)
-            last_10_data.append({
+            last_11_data.append({
                 "Date": p_date,
                 "Actual Result": p_actual,
                 "AI Prediction": f"{p_pred}/{(p_pred+5)%10}",
-                "Status": p_status
+                "Status": is_it_hit(p_pred, p_actual)
             })
-        st.table(pd.DataFrame(last_10_data))
+        st.table(pd.DataFrame(last_11_data))
 
         # --- SECTION 3: CURRENT PREDICTION ---
         st.divider()
         top_ank = calculate_prediction(df, idx, target_s)
         jodis = get_jodis(top_ank)
-        
-        st.header(f"🔮 {target_s} Today's Target: {sel_date}")
+        st.header(f"🔮 Today's Target ({target_s}): {sel_date}")
         n1, n2, n3 = st.columns(3)
         with n1: st.success(f"### Single\n{jodis[0]}")
         with n2: st.info(f"### Solid\n{jodis[1]}")
         with n3: st.warning(f"### Support\n{jodis[2]}, {jodis[3]}")
-    
+        
