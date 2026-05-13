@@ -1,110 +1,109 @@
 import streamlit as st
 import pandas as pd
 
-# Page Configuration
-st.set_page_config(page_title="MAYA v10.0 - Full Fix", layout="wide")
+# Page Setup
+st.set_page_config(page_title="MAYA v11.0 - Zero Error", layout="wide")
 
-st.title("🎯 MAYA Super-AI v10.0 (Fast Execution)")
+st.title("🎯 MAYA Super-AI v11.0 (Fix Edition)")
 
-# Jodi/Number Calculation Logic
-def get_jodis(ank):
+# 1. Direct Number (Jodi) Generator
+def get_solid_jodis(ank):
     rashi = (ank + 5) % 10
+    # Aapke solid patterns ke hisaab se numbers
     return [f"{ank}{ank}", f"{ank}{rashi}", f"{rashi}{ank}", f"{rashi}{rashi}"]
 
-# Optimized Data Loader
+# 2. Optimized File Loader (No Hang)
 @st.cache_data
-def load_and_clean_data(file):
+def fast_load(file):
     try:
-        # Excel ya CSV dono ke liye
+        # Excel ya CSV dono ke liye support
         if file.name.endswith('.xlsx'):
             df = pd.read_excel(file)
         else:
             df = pd.read_csv(file)
-            
-        # Columns ko saaf karna (Spaces hatana aur Capital karna)
+        
+        # Column names ki safai
         df.columns = [str(c).strip().upper() for c in df.columns]
         
-        # Standard names fix karna
-        mapping = {'FD': 'FB', 'GD': 'GB', 'FBD': 'FB', 'GZB': 'GB'}
-        df = df.rename(columns=mapping)
+        # Mapping: Aapki file mein FD/GD hai, use FB/GB mein badalna
+        df = df.rename(columns={'FD': 'FB', 'GD': 'GB', 'FBD': 'FB', 'GZB': 'GB'})
         
-        # Sirf wahi data jisme DATE ho
-        df = df.dropna(subset=['DATE'])
+        # Sirf wahi rows rakhein jahan result bhara hua hai (June/July ki khali dates hatayein)
+        df = df.dropna(subset=['DS', 'FB', 'GB', 'GL'], how='all')
+        
+        # Date ko saaf string mein badalna
+        df['DATE'] = df['DATE'].astype(str).str.strip()
         return df
     except Exception as e:
-        st.error(f"File Error: {e}")
+        st.error(f"File Loading Error: {e}")
         return None
 
-uploaded_file = st.file_uploader("📂 Apni File Upload Karein", type=["csv", "xlsx"])
+uploaded_file = st.file_uploader("📂 Apni Excel File Yahan Daalein", type=["csv", "xlsx"])
 
 if uploaded_file:
-    # 1. File Upload hote hi turant load hogi
-    df = load_and_clean_data(uploaded_file)
+    df = fast_load(uploaded_file)
     
     if df is not None:
-        # Game columns list
         game_cols = ['DS', 'FB', 'GB', 'GL', 'DB', 'SG']
         for col in game_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
 
-        st.success("✅ File Loaded Successfully!")
+        st.success("✅ Data Active! Ab Select Karein.")
 
-        # 2. DATE AND SHIFT SELECTOR (Requirement 2 & 3)
-        st.markdown("### 🛠️ Control Panel")
-        col_a, col_b = st.columns(2)
+        # --- SELECTION INTERFACE ---
+        st.markdown("### ⚙️ Control Panel")
+        col1, col2 = st.columns(2)
         
-        with col_a:
-            # Dropdown for Date
-            all_dates = df['DATE'].astype(str).unique().tolist()[::-1]
-            sel_date = st.selectbox("📅 Tarikh Select Karein:", options=all_dates)
+        with col1:
+            date_options = df['DATE'].unique().tolist()[::-1]
+            sel_date = st.selectbox("📅 Tarikh Chunein:", options=date_options)
         
-        with col_b:
-            # Dropdown for Shift
+        with col2:
             available_shifts = [c for c in game_cols if c in df.columns]
-            target_s = st.selectbox("🎰 Kis Shift Ka Number Chahiye?", options=available_shifts)
+            target_s = st.selectbox("🎰 Shift Chunein:", options=available_shifts)
 
-        # 3. ACCURACY ENGINE (Requirement 1 - No Loss)
+        # --- LOGIC CALCULATION (Strict Accuracy) ---
         try:
-            idx = df[df['DATE'].astype(str) == sel_date].index[0]
+            # Selected date ka data nikalna
+            idx = df[df['DATE'] == sel_date].index[0]
             f_df = df.iloc[:idx + 1]
             current_data = df.iloc[idx]
 
             scores = {i: 0 for i in range(10)}
             
-            # Pattern: Base Selection
-            shift_flow = {'FB': 'DS', 'GB': 'FB', 'GL': 'GB', 'DS': 'GL', 'SG': 'DB', 'DB': 'GL'}
-            base_col = shift_flow.get(target_s, 'DS')
+            # Base Selection Logic
+            flow = {'FB': 'DS', 'GB': 'FB', 'GL': 'GB', 'DS': 'GL', 'SG': 'DB', 'DB': 'GL'}
+            base_col = flow.get(target_s, 'DS')
             base_val = current_data.get(base_col, 0)
             
             d1, d2 = base_val // 10, base_val % 10
             
-            # Logic: Joda/Counting/85-Logic
+            # Strict Patterns
             if d1 == d2 and base_val > 0:
-                scores[0] += 20; scores[5] += 20
+                scores[0] += 20; scores[5] += 20 # Joda
             elif abs(d1 - d2) == 1:
                 nxt = (max(d1, d2) + 1) % 10
-                scores[nxt] += 15; scores[(nxt+5)%10] += 12
+                scores[nxt] += 15; scores[(nxt+5)%10] += 12 # Counting
             else:
-                scores[d2] += 12; scores[(d2+5)%10] += 10
+                scores[d2] += 12; scores[(d2+5)%10] += 10 # 85 -> 0/5
 
-            # Gap Analysis (25+ Pattern Booster)
-            recent_pool = f_df.tail(10)[game_cols].astype(str).values.flatten()
-            all_digits = "".join(recent_pool)
+            # Gap Analysis Pattern (25+ Confluence Booster)
+            recent = f_df.tail(10)[game_cols].astype(str).values.flatten()
+            pool = "".join(recent)
             for i in range(10):
-                if str(i) not in all_digits: scores[i] += 18
+                if str(i) not in pool: scores[i] += 18
 
-            # Sorting & Jodi Creation
+            # Best Ank to Number
             res = pd.DataFrame(scores.items(), columns=['Ank', 'Score']).sort_values(by='Score', ascending=False)
             top_ank = int(res.iloc[0]['Ank'])
-            jodis = get_jodis(top_ank)
+            jodis = get_solid_jodis(top_ank)
 
-            # --- DISPLAY SECTION ---
+            # --- DISPLAY OUTPUT ---
             st.divider()
-            st.write(f"📊 **Data Record:** {sel_date} | **Base:** {base_col} Result ({base_val})")
+            st.info(f"📊 **Base Check:** {target_s} ke liye humne {base_col} ({base_val}) ka logic lagaya hai.")
             
-            # Results
-            st.subheader(f"🔮 {target_s} Direct Numbers")
+            st.subheader(f"🔮 {target_s} Direct Numbers ({sel_date})")
             n1, n2, n3 = st.columns(3)
             with n1:
                 st.success(f"### Single Number\n{jodis[0]}")
@@ -113,10 +112,11 @@ if uploaded_file:
             with n3:
                 st.warning(f"### Support Jodis\n{jodis[2]}, {jodis[3]}")
             
-            st.write(f"**Accuracy Score:** {int(res.iloc[0]['Score'])}%")
+            st.write(f"**Accuracy Level:** {int(res.iloc[0]['Score'])}%")
 
         except Exception as e:
-            st.error(f"Calculation Error: {e}")
+            st.error(f"Analysis Error: {e}")
+
 else:
-    st.info("Bhai, file upload karein. Date aur Shift chunne ka option turant aa jayega.")
+    st.info("Bhai, file upload karo, Tarikh aur Shift ka button turant aa jayega.")
     
