@@ -2,9 +2,9 @@ import streamlit as st
 import pandas as pd
 
 # Page Setup
-st.set_page_config(page_title="MAYA v22.0 - Mirror Display", layout="wide")
+st.set_page_config(page_title="MAYA v23.0 - Future Mode", layout="wide")
 
-# Custom CSS for boxes, colors and rashi labels
+# Custom CSS for boxes and layout
 st.markdown("""
     <style>
     .formula-container { display: flex; align-items: center; justify-content: center; gap: 15px; margin-bottom: 20px; }
@@ -17,18 +17,21 @@ st.markdown("""
     .green { background-color: #28a745 !important; box-shadow: 0 0 15px #28a745; }
     .yellow { background-color: #ffc107 !important; color: black !important; box-shadow: 0 0 15px #ffc107; }
     .red { background-color: #dc3545 !important; }
+    .gray { background-color: #6c757d !important; border: 2px dashed #999; }
     .label-top { font-size: 14px; margin-bottom: 5px; font-weight: bold; color: #ccc; }
     .label-rashi { font-size: 18px; margin-top: 8px; font-weight: bold; color: #ffc107; background: #222; padding: 2px 10px; border-radius: 5px; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🎯 MAYA Super-AI v22.0 (With Mirror Display)")
+st.title("🎯 MAYA Super-AI v23.0 (Future Prediction Active)")
 
+# --- CORE LOGIC ENGINE (ACCURACY LOCKED) ---
 def get_logic(df, idx, shift):
     game_cols = ['DS', 'FB', 'GB', 'GL', 'DB', 'SG']
     row = df.iloc[idx]
     flow = {'FB': 'DS', 'GB': 'FB', 'GL': 'GB', 'DS': 'GL', 'SG': 'DB', 'DB': 'GL'}
     base_col = flow.get(shift, 'DS')
+    
     try:
         raw = row.get(base_col, 0)
         base_val = int(pd.to_numeric(raw, errors='coerce') or 0)
@@ -37,12 +40,14 @@ def get_logic(df, idx, shift):
     a_base, b_base = base_val // 10, base_val % 10
     a_scores, b_scores = {i: 0 for i in range(10)}, {i: 0 for i in range(10)}
     
+    # Standard Pattern Logic
     if a_base == b_base and base_val > 0:
         a_scores[0] += 20; a_scores[5] += 20
     else:
         a_scores[a_base] += 15; a_scores[(a_base+5)%10] += 10
     b_scores[b_base] += 15; b_scores[(b_base+5)%10] += 10
     
+    # Gap Analysis
     recent = df.iloc[:idx + 1].tail(10)[game_cols].values.flatten()
     pool = "".join([str(i) for i in recent if str(i).isdigit()])
     for i in range(10):
@@ -68,29 +73,34 @@ if uploaded_file:
     
     idx = df[df['DATE'] == sel_date].index[0]
     p_a, p_b = get_logic(df, idx, target_s)
-    r_a, r_b = (p_a + 5) % 10, (p_b + 5) % 10 # Calculations for Rashi
+    r_a, r_b = (p_a + 5) % 10, (p_b + 5) % 10 
     
-    actual_val = df.iloc[idx][target_s]
-    try:
-        act_num = int(pd.to_numeric(actual_val, errors='coerce'))
-        act_a, act_b = act_num // 10, act_num % 10
-    except: act_a, act_b = None, None
+    # --- RESULT HANDLING (ERROR FIX) ---
+    actual_val = df.iloc[idx].get(target_s, "XX")
+    act_a, act_b, act_num = None, None, None
+    
+    if pd.notna(actual_val) and str(actual_val).upper() != 'XX' and str(actual_val) != '0':
+        try:
+            act_num = int(pd.to_numeric(actual_val, errors='coerce'))
+            act_a, act_b = act_num // 10, act_num % 10
+        except: pass
 
-    # Strict Color Logic
-    color_a = "green" if act_a == p_a else ("yellow" if act_a == r_a else "red")
-    color_b = "green" if act_b == p_b else ("yellow" if act_b == r_b else "red")
-    
-    pred_jodi = int(f"{p_a}{p_b}")
-    if act_num == pred_jodi: color_j = "green"
-    elif color_a in ["green", "yellow"] and color_b in ["green", "yellow"]: color_j = "yellow"
-    else: color_j = "red"
+    # --- COLOR LOGIC FOR FUTURE DATA ---
+    if act_a is None:
+        color_a, color_b, color_j = "gray", "gray", "gray"
+    else:
+        color_a = "green" if act_a == p_a else ("yellow" if act_a == r_a else "red")
+        color_b = "green" if act_b == p_b else ("yellow" if act_b == r_b else "red")
+        if act_num == int(f"{p_a}{p_b}"): color_j = "green"
+        elif color_a in ["green", "yellow"] and color_b in ["green", "yellow"]: color_j = "yellow"
+        else: color_j = "red"
 
     with c3:
-        st.metric(f"Live Result ({target_s})", actual_val if actual_val != 0 else "Wait")
+        st.metric(f"Live Result ({target_s})", actual_val if act_num is not None else "Aane Wala Hai...")
 
     st.divider()
 
-    # --- FORMULA DISPLAY WITH RASHI ---
+    # --- FORMULA DISPLAY ---
     st.markdown(f"""
     <div class="formula-container">
         <div class="box-wrapper">
@@ -111,7 +121,7 @@ if uploaded_file:
             <div class="label-rashi">F: {r_a}{r_b}</div>
         </div>
     </div>
-    <p style='text-align:center;'>✅ Green: Direct | ⚠️ Yellow: Rashi/Mirror | ❌ Red: Fail</p>
+    <p style='text-align:center;'>⚪ Gray: Waiting | ✅ Green: Direct | ⚠️ Yellow: Rashi | ❌ Red: Fail</p>
     """, unsafe_allow_html=True)
 
     # Performance Table
@@ -123,12 +133,14 @@ if uploaded_file:
         ra, rb = (ha+5)%10, (hb+5)%10
         h_act = df.iloc[i][target_s]
         try:
-            hv = int(pd.to_numeric(h_act, errors='coerce')); ha_act, hb_act = hv//10, hv%10
-            if int(f"{ha}{hb}") == hv: s = "💎 DIRECT"
-            elif (ha_act in [ha, ra]) and (hb_act in [hb, rb]): s = "👪 FAMILY"
-            elif (ha_act in [ha, ra]) or (hb_act in [hb, rb]): s = "🎯 ANK"
-            else: s = "❌"
-        except: s = "➖"
-        history.append({"Date": df.iloc[i]['DATE'], "Result": h_act, "Pred": f"{ha}+{hb}", "Rashi": f"{ra}+{rb}", "Status": s})
+            if pd.isna(h_act) or str(h_act).upper() == 'XX': s = "⏳"
+            else:
+                hv = int(pd.to_numeric(h_act, errors='coerce')); ha_act, hb_act = hv//10, hv%10
+                if int(f"{ha}{hb}") == hv: s = "💎 DIRECT"
+                elif (ha_act in [ha, ra]) and (hb_act in [hb, rb]): s = "👪 FAMILY"
+                elif (ha_act in [ha, ra]) or (hb_act in [hb, rb]): s = "🎯 ANK"
+                else: s = "❌"
+        except: s = "⏳"
+        history.append({"Date": df.iloc[i]['DATE'], "Result": h_act, "Pred": f"{ha}+{hb}", "Status": s})
     st.table(pd.DataFrame(history))
     
