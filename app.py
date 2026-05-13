@@ -1,110 +1,84 @@
-import pandas as pd
 import streamlit as st
-import io
+import pandas as pd
 
-# --- 1. CONFIG & BOLD UI ---
-st.set_page_config(layout="wide", page_title="MAYA MATRIX v60.0")
+st.set_page_config(page_title="MAYA AI - 25+ Pattern Engine", layout="wide")
+st.title("🎯 MAYA Super-AI: 25+ Pattern Confluence Engine")
 
-st.markdown("""
-    <style>
-    .header-info { background: #000; color: gold; padding: 10px; border-radius: 8px; text-align: center; border: 2px solid gold; font-weight: bold; }
-    .vip-card { 
-        background: linear-gradient(135deg, #1A237E, #000); 
-        color: #00FF00; padding: 30px; border-radius: 20px; 
-        text-align: center; border: 5px solid gold; margin-bottom: 25px;
-    }
-    .ss-font { font-size: 85px; font-weight: 900; letter-spacing: 12px; text-shadow: 3px 3px #000; }
-    .audit-table { width: 100%; border-collapse: collapse; background: white; color: black; font-size: 15px; }
-    .audit-td { border: 2px solid #000; padding: 10px; text-align: center; font-weight: bold; }
-    .hit-pass { background: #C8E6C9; color: #1B5E20; font-weight: 900; }
-    .hit-fail { background: #FFCDD2; color: #B71C1C; }
-    </style>
-    """, unsafe_allow_html=True)
+uploaded_file = st.file_uploader("Upload 0DSP0.csv", type=["csv"])
 
-# --- 2. THE EXPERT PATTERN ENGINE ---
-def clean(v):
-    if pd.isna(v) or str(v).strip() in ['XX', '']: return ""
-    s = "".join(filter(str.isdigit, str(v)))
-    return s.zfill(2)[-2:] if s else ""
+def get_family(n):
+    d1, d2 = n // 10, n % 10
+    m1, m2 = (d1 + 5) % 10, (d2 + 5) % 10
+    return {d1*10+d2, d1*10+m2, m1*10+d2, m1*10+m2, d2*10+d1, d2*10+m1, m2*10+d1, m2*10+m1}
 
-@st.cache_data
-def run_expert_audit(df_json, t_date_str, s_name):
-    df = pd.read_json(io.StringIO(df_json))
-    df['DATE'] = pd.to_datetime(df['DATE'])
-    t_date = pd.to_datetime(t_date_str)
+if uploaded_file:
+    df = pd.read_csv(uploaded_file).dropna(how='all')
+    df.columns = [str(c).strip().upper() for c in df.columns]
     
-    # Scanning 20 Days History for deep patterns
-    hist = df[df['DATE'] < t_date].tail(20)
-    
-    # Get Last 2 Results for vertical tracking
-    res_list = [clean(x) for x in hist[s_name].values if clean(x)]
-    if not res_list: return [], [], []
-    
-    last = res_list[-1]
-    
-    # EXPERT LOGIC: Mirror + Cross-Connection + Gap
-    r = {'0':'5','5':'0','1':'6','6':'1','2':'7','7':'2','3':'8','8':'3','4':'9','9':'4'}
-    
-    # 1. VIP Single (Based on Friend's 17/71 and Disawar 10/62 Logic)
-    # This captures the Mirror of Haroofs + Neighbor connection
-    ss = [r[last[0]]+last[1], last[0]+r[last[1]], r[last[0]]+r[last[1]]]
-    
-    # 2. v33 Platinum (32-Pattern Confluence)
-    a, b = int(last[0]), int(last[1])
-    shifts = [(0,1),(0,-1),(1,0),(-1,0),(0,5),(5,0),(5,5),(1,4),(4,1),(6,1),(1,6),(1,1),(2,2)]
-    v33 = {f"{(a+da)%10}{(b+db)%10}" for da, db in shifts}
-    v24 = {p[::-1] for p in v33}
-    
-    return ss, list(v33), list(v24)
+    # --- Prediction Matrix ---
+    # Har ank (0-9) ke liye ek score board
+    scores = {i: 0 for i in range(10)}
+    reasons = {i: [] for i in range(10)}
 
-# --- 3. DASHBOARD ---
-with st.sidebar:
-    st.header("🎯 EXPERT CONTROL")
-    file = st.file_uploader("Upload 0DSP0.xlsx", type=['xlsx'])
-    t_date = st.date_input("Target Date")
+    # Latest Data
+    last_row = df.iloc[-1]
+    prev_row = df.iloc[-2]
+    game_cols = ['DS', 'FD', 'GD', 'GL']
 
-if file:
-    df_raw = pd.read_excel(file)
-    df_raw['DATE'] = pd.to_datetime(df_raw['DATE'])
-    df_j = df_raw.to_json(date_format='iso')
+    # 1. YOUR PATTERN (85 -> 0/5)
+    for col in game_cols:
+        val = int(last_row[col]) if pd.notna(last_row[col]) else 0
+        u = val % 10
+        scores[u] += 5
+        scores[(u+5)%10] += 5
+        reasons[u].append(f"Unit Digit Pattern from {col}")
+
+    # 2. JODA LOGIC (0/5 Boost)
+    if any(int(last_row[c])%11 == 0 for c in game_cols if pd.notna(last_row[c])):
+        scores[0] += 10
+        scores[5] += 10
+        reasons[0].append("Joda Trigger")
+
+    # 3. FAMILY REPEAT PATTERN (15-42 Logic)
+    # Check if 15 or 42 family was active in last 3 days
+    recent_3 = df.tail(3)[game_cols].values.flatten()
+    f42 = get_family(42)
+    if any(val in f42 for val in recent_3):
+        scores[2] += 8; scores[7] += 8; scores[4] += 8; scores[9] += 8
+        reasons[4].append("42-Family Active Flow")
+
+    # 4. GAP ANK PATTERN (Missing for 10 days)
+    all_recent = df.tail(10)[game_cols].astype(str).values.flatten()
+    full_str = "".join(all_recent)
+    for i in range(10):
+        if str(i) not in full_str:
+            scores[i] += 15
+            reasons[i].append("10-Day Long Gap (Strong)")
+
+    # 5. COUNTING SERIES PATTERN
+    for col in game_cols:
+        val = int(last_row[col])
+        if abs((val//10) - (val%10)) == 1:
+            next_step = (max(val//10, val%10) + 1) % 10
+            scores[next_step] += 7
+            reasons[next_step].append("Counting Series Next Step")
+
+    # --- FINAL VERDICT ---
+    res_df = pd.DataFrame([{'Ank': k, 'Score': v, 'Patterns': ", ".join(reasons[k])} for k, v in scores.items()])
+    res_df = res_df.sort_values(by='Score', ascending=False)
+
+    st.subheader("🔥 Super Solid Prediction (Multi-Pattern Match)")
+    top_ank = res_df.iloc[0]
     
-    st.markdown(f"<div class='header-info'>⚡ MAYA EXPERT v60.0 | FULL BACK-TESTED LOGIC</div>", unsafe_allow_html=True)
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        st.metric("CONFIRMED ANK", top_ank['Ank'], f"Score: {top_ank['Score']}")
+        st.write("**Top 3 Candidates:**")
+        st.table(res_df[['Ank', 'Score']].head(3))
     
-    tabs = st.tabs(["DS", "FD", "GD", "GL", "DB", "SG"])
-    shifts = ["DS", "FD", "GD", "GL", "DB", "SG"]
+    with c2:
+        st.write("**Matching Patterns for this Ank:**")
+        st.info(top_ank['Patterns'])
 
-    for idx, s_name in enumerate(shifts):
-        with tabs[idx]:
-            ss, v33, v24 = run_expert_audit(df_j, str(t_date), s_name)
-            curr_row = df_raw[df_raw['DATE'] == pd.to_datetime(t_date)]
-            actual = clean(curr_row[s_name].values[0]) if not curr_row.empty else ""
-
-            # --- BIG VIP DISPLAY ---
-            is_hit = (actual in ss and actual != "")
-            st.markdown(f"""
-            <div class='vip-card'>
-                <div style='color:gold; font-size:24px; font-weight:bold;'>🏆 SUPER VIP SINGLE SHOT</div>
-                <div class='ss-font'>{', '.join(ss[:2])}</div>
-                <div style='font-size:28px;'>RESULT: {actual if actual else '--'} {'✅ PASS' if is_hit else ''}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-            # --- TRIPLE HISTORY AUDIT (15 DAYS) ---
-            st.markdown("### 📊 Triple Audit History (Aamne-Saamne)")
-            h_df = df_raw[df_raw['DATE'] < pd.to_datetime(t_date)].tail(15)
-            h_table = "<table class='audit-table'><tr style='background:#000; color:gold;'><td>DATE</td><td>RES</td><td>v33</td><td>v24</td><td>SS</td></tr>"
-            
-            for _, hr in h_df.iloc[::-1].iterrows():
-                val = clean(hr[s_name])
-                h_ss, h_v33, h_v24 = run_expert_audit(df_j, str(hr['DATE']), s_name)
-                c33 = "✅" if val in h_v33 else "❌"
-                c24 = "✅" if val in h_v24 else "❌"
-                css = "✅" if val in h_ss else "❌"
-                
-                h_table += f"<tr><td class='audit-td'>{hr['DATE'].strftime('%d-%m')}</td><td class='audit-td' style='background:#eee;'>{val}</td>"
-                h_table += f"<td class='audit-td {'hit-pass' if c33=='✅' else 'hit-fail'}'>{c33}</td>"
-                h_table += f"<td class='audit-td {'hit-pass' if c24=='✅' else 'hit-fail'}'>{c24}</td>"
-                h_table += f"<td class='audit-td {'hit-pass' if css=='✅' else 'hit-fail'}'>{css}</td></tr>"
-            
-            st.markdown(h_table + "</table>", unsafe_allow_html=True)
-            
+    st.bar_chart(res_df.set_index('Ank')['Score'])
+                             
