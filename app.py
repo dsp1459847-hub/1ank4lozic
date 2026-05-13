@@ -2,14 +2,18 @@ import streamlit as st
 import pandas as pd
 
 # Page Setup
-st.set_page_config(page_title="MAYA v15.0 - AB Position Logic", layout="wide")
+st.set_page_config(page_title="MAYA v15.5 - AB Position Stable", layout="wide")
 
-st.title("🎯 MAYA Super-AI v15.0 (Andar-Bahar Direct Number)")
+st.title("🎯 MAYA Super-AI v15.5 (Andar-Bahar Direct Number)")
 
+# Optimized File Loader
 @st.cache_data
 def load_data(file):
     try:
-        df = pd.read_excel(file) if file.name.endswith('.xlsx') else pd.read_csv(file)
+        if file.name.endswith('.xlsx'):
+            df = pd.read_excel(file)
+        else:
+            df = pd.read_csv(file)
         df.columns = [str(c).strip().upper() for c in df.columns]
         mapping = {'FD': 'FB', 'GD': 'GB', 'FBD': 'FB', 'GZB': 'GB'}
         df = df.rename(columns=mapping)
@@ -19,35 +23,42 @@ def load_data(file):
     except Exception as e:
         return None
 
-# --- NEW LOGIC: POSITION BASED PREDICTION ---
+# --- ACCURACY ENGINE: POSITION BASED (STRICT) ---
 def calculate_ab_prediction(df, data_idx, shift):
     row = df.iloc[data_idx]
     flow = {'FB': 'DS', 'GB': 'FB', 'GL': 'GB', 'DS': 'GL', 'SG': 'DB', 'DB': 'GL'}
     base_col = flow.get(shift, 'DS')
-    base_val = int(pd.to_numeric(row.get(base_col, 0), errors='coerce') or 0)
     
-    # Split Base into A and B (Andar and Bahar)
-    a_base = base_val // 10
-    b_base = base_val % 10
+    # ERROR FIX: Handling XX, NaN, and Empty values strictly
+    try:
+        val_raw = row.get(base_col, 0)
+        # Agar value XX hai ya khali hai toh 0 maanein
+        base_val = int(pd.to_numeric(val_raw, errors='coerce')) if pd.notna(val_raw) and str(val_raw).upper() != 'XX' else 0
+    except:
+        base_val = 0
     
-    # 1. Prediction for Andar (A)
-    # Pattern: Agar Joda hai toh 0/5, warna Base A ka mirror
+    # Split into Andar (A) and Bahar (B)
+    a_base = int(base_val // 10)
+    b_base = int(base_val % 10)
+    
+    # 1. Andar (A) Logic - (Accuracy Locked)
     a_scores = {i: 0 for i in range(10)}
-    if a_base == b_base:
+    if a_base == b_base and base_val > 0:
         a_scores[0] += 20; a_scores[5] += 20
     else:
         a_scores[a_base] += 15; a_scores[(a_base + 5) % 10] += 10
         
-    # 2. Prediction for Bahar (B)
-    # Pattern: Gap analysis specific to Bahar position
+    # 2. Bahar (B) Logic - (Accuracy Locked)
     b_scores = {i: 0 for i in range(10)}
     b_scores[b_base] += 15; b_scores[(b_base + 5) % 10] += 10
     
-    # Gap Analysis for Confluence (Last 10 Days)
-    recent_pool = df.iloc[:data_idx + 1].tail(10)[shift].astype(str).values
+    # 3. Confluence (10-Day Position Gap)
+    game_cols = ['DS', 'FB', 'GB', 'GL', 'DB', 'SG']
+    recent_data = df.iloc[:data_idx + 1].tail(10)[game_cols].astype(str).values.flatten()
+    pool = "".join([s for s in recent_data if s.isdigit()])
     for i in range(10):
-        if str(i) not in "".join(recent_pool):
-            a_scores[i] += 5; b_scores[i] += 10 # Bahar ka gap zyada matter karta hai
+        if str(i) not in pool:
+            a_scores[i] += 12; b_scores[i] += 18 # Bahar gap has more weight
 
     best_a = max(a_scores, key=a_scores.get)
     best_b = max(b_scores, key=b_scores.get)
@@ -55,14 +66,15 @@ def calculate_ab_prediction(df, data_idx, shift):
     return best_a, best_b
 
 def check_jodi_hit(a_pred, b_pred, actual):
-    actual_val = int(pd.to_numeric(actual, errors='coerce') or 0)
-    act_a = actual_val // 10
-    act_b = actual_val % 10
-    
-    # Check if both match or mirrors match (Strict Pass)
-    if (a_pred == act_a or (a_pred+5)%10 == act_a) and (b_pred == act_b or (b_pred+5)%10 == act_b):
-        return "✅ PASS"
-    return "❌ FAIL"
+    try:
+        if pd.isna(actual) or str(actual).upper() == 'XX': return "➖"
+        act_val = int(pd.to_numeric(actual, errors='coerce'))
+        act_a, act_b = act_val // 10, act_val % 10
+        # Position wise check (with Mirror/Rashi)
+        if (a_pred == act_a or (a_pred+5)%10 == act_a) and (b_pred == act_b or (b_pred+5)%10 == act_b):
+            return "✅ PASS"
+        return "❌ FAIL"
+    except: return "❌ FAIL"
 
 uploaded_file = st.file_uploader("📂 Apni Excel File Upload Karein", type=["csv", "xlsx"])
 
@@ -72,31 +84,38 @@ if uploaded_file:
         game_cols = ['DS', 'FB', 'GB', 'GL', 'DB', 'SG']
         st.sidebar.header("⚙️ Settings")
         all_dates = df['DATE'].unique().tolist()[::-1]
-        sel_date = st.sidebar.selectbox("📅 Tarikh Chunein:", options=all_dates)
-        target_s = st.sidebar.selectbox("🎰 Shift Chunein:", options=[c for c in game_cols if c in df.columns])
+        sel_date = st.sidebar.selectbox("📅 Tarikh Select Karein:", options=all_dates)
+        target_s = st.sidebar.selectbox("🎰 Shift Select Karein:", options=[c for c in game_cols if c in df.columns])
 
         idx = df[df['DATE'] == sel_date].index[0]
+        
+        # Calculation
         a_pred, b_pred = calculate_ab_prediction(df, idx, target_s)
         
-        # --- OUTPUT ---
-        st.subheader(f"🔮 {target_s} Ki Prediction ({sel_date})")
+        # --- OUTPUT DISPLAY ---
+        st.subheader(f"🔮 {target_s} Target for {sel_date}")
         
         c1, c2 = st.columns(2)
         with c1:
             st.info(f"### Andar (A): {a_pred}")
             st.info(f"### Bahar (B): {b_pred}")
         with c2:
-            st.success(f"### Single Number: {a_pred}{b_pred}")
-            st.warning(f"### Support Number: {(a_pred+5)%10}{(b_pred+5)%10}")
+            st.success(f"### Single Number\n# {a_pred}{b_pred}")
+            st.warning(f"### Support Number\n# {(a_pred+5)%10}{(b_pred+5)%10}")
 
         # --- HISTORY TRACKER ---
-        st.markdown("### 📜 Position-Based History (10 Days)")
+        st.markdown("### 📜 10-Day Performance (Position Wise)")
         history_list = []
-        for i in range(idx - 10, idx):
+        for i in range(idx - 10, idx + 1):
             if i < 0: continue
             ha, hb = calculate_ab_prediction(df, i, target_s)
             h_actual = df.iloc[i][target_s]
-            status = check_jodi_hit(ha, hb, h_actual)
-            history_list.append({"Date": df.iloc[i]['DATE'], "Actual": h_actual, "Predicted": f"{ha}{hb}", "Status": status})
+            history_list.append({
+                "Date": df.iloc[i]['DATE'],
+                "Actual": h_actual,
+                "AI Prediction (A/B)": f"{ha}{hb}",
+                "Status": check_jodi_hit(ha, hb, h_actual)
+            })
         
         st.table(pd.DataFrame(history_list))
+        
