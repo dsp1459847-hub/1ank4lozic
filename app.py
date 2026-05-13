@@ -2,131 +2,138 @@ import streamlit as st
 import pandas as pd
 
 # Page Setup
-st.set_page_config(page_title="MAYA v26.0 - 12.5 Base Fixed", layout="wide")
+st.set_page_config(page_title="MAYA v21.5 - Strict Match", layout="wide")
 
-# Custom CSS for Formula UI (Mathematical Style)
+# Custom CSS for boxes and colors
 st.markdown("""
     <style>
-    .formula-container { display: flex; align-items: center; justify-content: center; gap: 15px; margin-bottom: 20px; }
-    .box-wrapper { display: flex; flex-direction: column; align-items: center; }
-    .box { width: 90px; height: 90px; display: flex; align-items: center; justify-content: center; 
-           font-size: 40px; font-weight: bold; border-radius: 12px; color: white; border: 3px solid #444; }
-    .plus-equal { font-size: 50px; font-weight: bold; color: #fff; padding-top: 15px; }
-    .green { background-color: #28a745 !important; box-shadow: 0 0 20px #28a745; }
+    .formula-container { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 20px; }
+    .box { width: 80px; height: 80px; display: flex; align-items: center; justify-content: center; 
+           font-size: 35px; font-weight: bold; border-radius: 10px; color: white; border: 2px solid #333; }
+    .jodi-box { width: 120px; height: 80px; display: flex; align-items: center; justify-content: center; 
+                font-size: 35px; font-weight: bold; border-radius: 10px; color: white; border: 2px solid #333; }
+    .plus-equal { font-size: 40px; font-weight: bold; color: #fff; }
+    .green { background-color: #28a745 !important; }
+    .yellow { background-color: #ffc107 !important; color: black !important; } /* For Mirror Match */
     .red { background-color: #dc3545 !important; }
-    .gray { background-color: #444 !important; border: 3px dashed #777; }
-    .label-top { font-size: 16px; margin-bottom: 5px; font-weight: bold; color: #bbb; }
-    .label-rashi { font-size: 20px; margin-top: 10px; font-weight: bold; color: #ffc107; background: #111; padding: 4px 12px; border-radius: 6px; }
+    .label { font-size: 14px; text-align: center; font-weight: bold; color: #ccc; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🎯 MAYA Super-AI v26.0 (v12.5 Position Edition)")
+st.title("🎯 MAYA Super-AI v21.5 (Strict Result Match)")
 
-# --- v12.5 CORE LOGIC (LOCKED & RESTORED) ---
-def calculate_12_5_logic(df, idx, shift):
+# Core Logic Engine (No Change in Accuracy)
+def get_logic(df, idx, shift):
     game_cols = ['DS', 'FB', 'GB', 'GL', 'DB', 'SG']
     row = df.iloc[idx]
-    history_df = df.iloc[:idx + 1]
-    scores = {i: 0 for i in range(10)}
     flow = {'FB': 'DS', 'GB': 'FB', 'GL': 'GB', 'DS': 'GL', 'SG': 'DB', 'DB': 'GL'}
     base_col = flow.get(shift, 'DS')
-    
     try:
-        raw_val = row.get(base_col, 0)
-        base_val = int(float(str(raw_val).split('.')[0]) if pd.notna(raw_val) and str(raw_val).upper() != 'XX' else 0)
+        raw = row.get(base_col, 0)
+        base_val = int(pd.to_numeric(raw, errors='coerce') or 0)
     except: base_val = 0
     
-    d1, d2 = base_val // 10, base_val % 10
+    a_base, b_base = base_val // 10, base_val % 10
+    a_scores, b_scores = {i: 0 for i in range(10)}, {i: 0 for i in range(10)}
     
-    # Restoring v12.5 Pattern Weights
-    if d1 == d2 and base_val > 0:
-        scores[0] += 20; scores[5] += 20
-    elif abs(d1 - d2) == 1:
-        nxt = (max(d1, d2) + 1) % 10
-        scores[nxt] += 15; scores[(nxt+5)%10] += 12
+    if a_base == b_base and base_val > 0:
+        a_scores[0] += 20; a_scores[5] += 20
     else:
-        scores[d2] += 12; scores[(d2 + 5) % 10] += 10
+        a_scores[a_base] += 15; a_scores[(a_base+5)%10] += 10
+    b_scores[b_base] += 15; b_scores[(b_base+5)%10] += 10
     
-    # Gap Analysis
-    recent = history_df.tail(10)[game_cols].values.flatten()
-    pool = "".join([str(item).split('.')[0] for item in recent if str(item).split('.')[0].isdigit()])
+    recent = df.iloc[:idx + 1].tail(10)[game_cols].values.flatten()
+    pool = "".join([str(i) for i in recent if str(i).isdigit()])
     for i in range(10):
-        if str(i) not in pool: scores[i] += 18
-    
-    res_df = pd.DataFrame(scores.items()).sort_values(by=1, ascending=False)
-    # Positioning: Top 1 as Andar, Top 2 as Bahar (Logic restored to 12.5 style)
-    return int(res_df.iloc[0][0]), int(res_df.iloc[1][0])
+        if str(i) not in pool:
+            a_scores[i] += 10; b_scores[i] += 15
+            
+    return max(a_scores, key=a_scores.get), max(b_scores, key=b_scores.get)
 
-@st.cache_data
-def load_data(file):
-    try:
-        df = pd.read_excel(file) if file.name.endswith('.xlsx') else pd.read_csv(file)
-        df.columns = [str(c).strip().upper() for c in df.columns]
-        df = df.rename(columns={'FD': 'FB', 'GD': 'GB', 'FBD': 'FB', 'GZB': 'GB'})
-        df = df.dropna(subset=['DATE'])
-        df['DATE'] = df['DATE'].astype(str).str.strip()
-        return df
-    except: return None
-
-uploaded_file = st.file_uploader("📂 Upload 0DSP0 File", type=["csv", "xlsx"])
+uploaded_file = st.file_uploader("📂 Upload Excel", type=["csv", "xlsx"])
 
 if uploaded_file:
-    df = load_data(uploaded_file)
-    if df is not None:
-        # --- UI SELECTORS (TOP) ---
-        c1, c2, c3 = st.columns([2, 2, 2])
-        with c1: sel_date = st.selectbox("📅 Date:", options=df['DATE'].unique().tolist()[::-1])
-        with c2: target_s = st.selectbox("🎰 Shift:", options=[c for c in ['DS', 'FB', 'GB', 'GL', 'DB', 'SG'] if c in df.columns])
-        
-        idx = df[df['DATE'] == sel_date].index[0]
-        p_a, p_b = calculate_12_5_logic(df, idx, target_s)
-        r_a, r_b = (p_a + 5) % 10, (p_b + 5) % 10
-        
-        # Live Result Data
-        actual_val = df.iloc[idx].get(target_s, "XX")
-        clean_act = str(actual_val).split('.')[0] if pd.notna(actual_val) and str(actual_val).upper() != 'XX' else "XX"
-        
-        act_a, act_b = None, None
-        if clean_act.isdigit():
-            v = int(clean_act)
-            act_a, act_b = v // 10, v % 10
+    df = (pd.read_excel(uploaded_file) if uploaded_file.name.endswith('.xlsx') 
+          else pd.read_csv(uploaded_file))
+    df.columns = [str(c).strip().upper() for c in df.columns]
+    df = df.rename(columns={'FD': 'FB', 'GD': 'GB', 'FBD': 'FB', 'GZB': 'GB'})
+    df['DATE'] = df['DATE'].astype(str).str.strip()
 
-        # Smart Coloring
-        c_a = "green" if act_a in [p_a, r_a] else "red"
-        c_b = "green" if act_b in [p_b, r_b] else "red"
-        if clean_act == "XX": c_a = c_b = "gray"
+    # --- TOP FIXED PANEL ---
+    c1, c2, c3 = st.columns([2, 2, 2])
+    with c1:
+        all_dates = df['DATE'].unique().tolist()[::-1]
+        sel_date = st.selectbox("📅 Date:", options=all_dates)
+    with c2:
+        game_cols = ['DS', 'FB', 'GB', 'GL', 'DB', 'SG']
+        available = [c for c in game_cols if c in df.columns]
+        target_s = st.selectbox("🎰 Shift:", options=available)
+    
+    idx = df[df['DATE'] == sel_date].index[0]
+    p_a, p_b = get_logic(df, idx, target_s)
+    actual_val = df.iloc[idx][target_s]
+    
+    try:
+        act_num = int(pd.to_numeric(actual_val, errors='coerce'))
+        act_a, act_b = act_num // 10, act_num % 10
+    except: act_a, act_b = None, None
 
-        with c3: st.metric(f"Live Result {target_s}", clean_act)
+    # --- STRICT COLOR LOGIC ---
+    # Andar Check
+    if act_a is not None:
+        if p_a == act_a: color_a = "green"
+        elif (p_a+5)%10 == act_a: color_a = "yellow" # Mirror pass
+        else: color_a = "red"
+    else: color_a = "red"
 
-        st.divider()
+    # Bahar Check
+    if act_b is not None:
+        if p_b == act_b: color_b = "green"
+        elif (p_b+5)%10 == act_b: color_b = "yellow" # Mirror pass
+        else: color_b = "red"
+    else: color_b = "red"
 
-        # --- MATHEMATICAL DISPLAY [A] + [B] = [JODI] ---
-        st.markdown(f"""
-        <div class="formula-container">
-            <div class="box-wrapper"><div class="label-top">ANDAR (A)</div><div class="box {c_a}">{p_a}</div><div class="label-rashi">R: {r_a}</div></div>
-            <div class="plus-equal">+</div>
-            <div class="box-wrapper"><div class="label-top">BAHAR (B)</div><div class="box {c_b}">{p_b}</div><div class="label-rashi">R: {r_b}</div></div>
-            <div class="plus-equal">=</div>
-            <div class="box-wrapper"><div class="label-top">JODI</div><div class="box {'green' if c_a=='green' and c_b=='green' else ('red' if c_a!='gray' else 'gray')}">{p_a}{p_b}</div><div class="label-rashi">F: {r_a}{r_b}</div></div>
-        </div>
-        """, unsafe_allow_html=True)
+    # Jodi Check - ONLY GREEN IF DIRECT MATCH
+    if act_num is not None and int(f"{p_a}{p_b}") == act_num:
+        color_j = "green"
+    elif color_a in ["green", "yellow"] and color_b in ["green", "yellow"]:
+        color_j = "yellow" # Family/Mirror pass
+    else:
+        color_j = "red"
 
-        # --- LIVE HISTORY WITH TICK (REQUIREMENT) ---
-        st.subheader("📜 11-Day Performance Tracker")
-        history = []
-        for i in range(idx - 11, idx + 1):
-            if i < 0: continue
-            ha, hb = calculate_12_5_logic(df, i, target_s)
-            h_act = str(df.iloc[i][target_s]).split('.')[0]
-            try:
-                if h_act.isdigit():
-                    hv = int(h_act); ha_act, hb_act = hv//10, hv%10
-                    ra, rb = (ha+5)%10, (hb+5)%10
-                    # Tick logic
-                    is_p = "✅ PASS" if (ha_act in [ha, ra]) or (hb_act in [hb, rb]) else "❌ FAIL"
-                else: is_p = "⏳"
-            except: is_p = "⏳"
-            history.append({"Date": df.iloc[i]['DATE'], "Result": h_act, "A+B Prediction": f"{ha}+{hb}", "Status": is_p})
-        
-        st.table(pd.DataFrame(history))
-        
+    with c3:
+        st.metric(f"Live Result ({target_s})", actual_val if actual_val != 0 else "Waiting")
+
+    st.divider()
+
+    # --- MATHEMATICAL FORMULA DISPLAY ---
+    st.markdown(f"""
+    <div class="formula-container">
+        <div><div class="label">Andar (A)</div><div class="box {color_a}">{p_a}</div></div>
+        <div class="plus-equal">+</div>
+        <div><div class="label">Bahar (B)</div><div class="box {color_b}">{p_b}</div></div>
+        <div class="plus-equal">=</div>
+        <div><div class="label">Jodi</div><div class="jodi-box {color_j}">{p_a}{p_b}</div></div>
+    </div>
+    <p style='text-align:center;'><b>Note:</b> <span style='color:#28a745;'>Green</span> = Direct, <span style='color:#ffc107;'>Yellow</span> = Mirror/Family, <span style='color:#dc3545;'>Red</span> = Fail</p>
+    """, unsafe_allow_html=True)
+
+    # --- PERFORMANCE TABLE ---
+    st.subheader("📜 10-Day Performance Record")
+    history = []
+    for i in range(idx - 10, idx + 1):
+        if i < 0: continue
+        ha, hb = get_logic(df, i, target_s)
+        h_act = df.iloc[i][target_s]
+        try:
+            h_v = int(pd.to_numeric(h_act, errors='coerce')); h_a, h_b = h_v // 10, h_v % 10
+            # History Hit Logic
+            if int(f"{ha}{hb}") == h_v: s = "💎 DIRECT"
+            elif (ha==h_a or (ha+5)%10==h_a) and (hb==h_b or (hb+5)%10==h_b): s = "👪 FAMILY"
+            elif (ha==h_a or (ha+5)%10==h_a) or (hb==h_b or (hb+5)%10==h_b): s = "🎯 ANK"
+            else: s = "❌"
+        except: s = "➖"
+        history.append({"Date": df.iloc[i]['DATE'], "Result": h_act, "AI Pred": f"{ha}+{hb}", "Status": s})
+    
+    st.table(pd.DataFrame(history))
+    
