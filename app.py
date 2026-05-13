@@ -2,111 +2,101 @@ import streamlit as st
 import pandas as pd
 
 # Page Setup
-st.set_page_config(page_title="MAYA v12.0 - History & Prediction", layout="wide")
+st.set_page_config(page_title="MAYA v15.0 - AB Position Logic", layout="wide")
 
-st.title("🎯 MAYA Super-AI v12.0 (History Match Edition)")
-
-# Function to get Jodis and check results
-def get_jodis(ank):
-    rashi = (ank + 5) % 10
-    return [f"{ank}{ank}", f"{ank}{rashi}", f"{rashi}{ank}", f"{rashi}{rashi}"]
+st.title("🎯 MAYA Super-AI v15.0 (Andar-Bahar Direct Number)")
 
 @st.cache_data
-def load_and_clean(file):
+def load_data(file):
     try:
         df = pd.read_excel(file) if file.name.endswith('.xlsx') else pd.read_csv(file)
         df.columns = [str(c).strip().upper() for c in df.columns]
-        df = df.rename(columns={'FD': 'FB', 'GD': 'GB', 'FBD': 'FB', 'GZB': 'GB'})
+        mapping = {'FD': 'FB', 'GD': 'GB', 'FBD': 'FB', 'GZB': 'GB'}
+        df = df.rename(columns=mapping)
         df = df.dropna(subset=['DATE'])
         df['DATE'] = df['DATE'].astype(str).str.strip()
         return df
     except Exception as e:
-        st.error(f"File Error: {e}")
         return None
+
+# --- NEW LOGIC: POSITION BASED PREDICTION ---
+def calculate_ab_prediction(df, data_idx, shift):
+    row = df.iloc[data_idx]
+    flow = {'FB': 'DS', 'GB': 'FB', 'GL': 'GB', 'DS': 'GL', 'SG': 'DB', 'DB': 'GL'}
+    base_col = flow.get(shift, 'DS')
+    base_val = int(pd.to_numeric(row.get(base_col, 0), errors='coerce') or 0)
+    
+    # Split Base into A and B (Andar and Bahar)
+    a_base = base_val // 10
+    b_base = base_val % 10
+    
+    # 1. Prediction for Andar (A)
+    # Pattern: Agar Joda hai toh 0/5, warna Base A ka mirror
+    a_scores = {i: 0 for i in range(10)}
+    if a_base == b_base:
+        a_scores[0] += 20; a_scores[5] += 20
+    else:
+        a_scores[a_base] += 15; a_scores[(a_base + 5) % 10] += 10
+        
+    # 2. Prediction for Bahar (B)
+    # Pattern: Gap analysis specific to Bahar position
+    b_scores = {i: 0 for i in range(10)}
+    b_scores[b_base] += 15; b_scores[(b_base + 5) % 10] += 10
+    
+    # Gap Analysis for Confluence (Last 10 Days)
+    recent_pool = df.iloc[:data_idx + 1].tail(10)[shift].astype(str).values
+    for i in range(10):
+        if str(i) not in "".join(recent_pool):
+            a_scores[i] += 5; b_scores[i] += 10 # Bahar ka gap zyada matter karta hai
+
+    best_a = max(a_scores, key=a_scores.get)
+    best_b = max(b_scores, key=b_scores.get)
+    
+    return best_a, best_b
+
+def check_jodi_hit(a_pred, b_pred, actual):
+    actual_val = int(pd.to_numeric(actual, errors='coerce') or 0)
+    act_a = actual_val // 10
+    act_b = actual_val % 10
+    
+    # Check if both match or mirrors match (Strict Pass)
+    if (a_pred == act_a or (a_pred+5)%10 == act_a) and (b_pred == act_b or (b_pred+5)%10 == act_b):
+        return "✅ PASS"
+    return "❌ FAIL"
 
 uploaded_file = st.file_uploader("📂 Apni Excel File Upload Karein", type=["csv", "xlsx"])
 
 if uploaded_file:
-    df = load_and_clean(uploaded_file)
-    
+    df = load_data(uploaded_file)
     if df is not None:
         game_cols = ['DS', 'FB', 'GB', 'GL', 'DB', 'SG']
-        for col in game_cols:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
+        st.sidebar.header("⚙️ Settings")
+        all_dates = df['DATE'].unique().tolist()[::-1]
+        sel_date = st.sidebar.selectbox("📅 Tarikh Chunein:", options=all_dates)
+        target_s = st.sidebar.selectbox("🎰 Shift Chunein:", options=[c for c in game_cols if c in df.columns])
 
-        # --- SELECTION PANEL ---
-        st.markdown("### ⚙️ Control Panel")
+        idx = df[df['DATE'] == sel_date].index[0]
+        a_pred, b_pred = calculate_ab_prediction(df, idx, target_s)
+        
+        # --- OUTPUT ---
+        st.subheader(f"🔮 {target_s} Ki Prediction ({sel_date})")
+        
         c1, c2 = st.columns(2)
         with c1:
-            all_dates = df['DATE'].unique().tolist()[::-1]
-            sel_date = st.selectbox("📅 Tarikh Select Karein:", options=all_dates)
+            st.info(f"### Andar (A): {a_pred}")
+            st.info(f"### Bahar (B): {b_pred}")
         with c2:
-            available_shifts = [c for c in game_cols if c in df.columns]
-            target_s = st.selectbox("🎰 Shift Select Karein:", options=available_shifts)
+            st.success(f"### Single Number: {a_pred}{b_pred}")
+            st.warning(f"### Support Number: {(a_pred+5)%10}{(b_pred+5)%10}")
 
-        # --- CALCULATION LOGIC ---
-        try:
-            idx = df[df['DATE'] == sel_date].index[0]
-            f_df = df.iloc[:idx + 1]
-            current_data = df.iloc[idx]
-
-            # Logic Engine
-            def calculate_for_date(data_idx, shift):
-                row = df.iloc[data_idx]
-                history_df = df.iloc[:data_idx + 1]
-                scores = {i: 0 for i in range(10)}
-                flow = {'FB': 'DS', 'GB': 'FB', 'GL': 'GB', 'DS': 'GL', 'SG': 'DB', 'DB': 'GL'}
-                base_col = flow.get(shift, 'DS')
-                base_val = row.get(base_col, 0)
-                d1, d2 = base_val // 10, base_val % 10
-                
-                if d1 == d2 and base_val > 0: scores[0] += 20; scores[5] += 20
-                elif abs(d1 - d2) == 1:
-                    nxt = (max(d1, d2) + 1) % 10
-                    scores[nxt] += 15; scores[(nxt+5)%10] += 12
-                else: scores[d2] += 12; scores[(d2+5)%10] += 10
-                
-                recent = history_df.tail(10)[game_cols].astype(str).values.flatten()
-                pool = "".join(recent)
-                for i in range(10):
-                    if str(i) not in pool: scores[i] += 18
-                
-                res_ank = int(pd.DataFrame(scores.items()).sort_values(by=1, ascending=False).iloc[0][0])
-                return res_ank
-
-            # Current Prediction
-            top_ank = calculate_for_date(idx, target_s)
-            jodis = get_jodis(top_ank)
-
-            # --- HISTORY COMPARISON (Aapki Main Demand) ---
-            st.markdown("### 📜 Past 5 Days: Prediction vs Actual Result")
-            history_list = []
-            for i in range(idx - 5, idx):
-                if i < 0: continue
-                past_date = df.iloc[i]['DATE']
-                actual_res = df.iloc[i][target_s]
-                pred_ank = calculate_for_date(i, target_s)
-                
-                # Check if hit (If actual result's digit matches prediction)
-                is_hit = "✅ HIT" if str(pred_ank) in str(actual_res) or str((pred_ank+5)%10) in str(actual_res) else "❌ MISS"
-                history_list.append({"Date": past_date, "Actual Result": actual_res, "AI Predicted Ank": f"{pred_ank}/{ (pred_ank+5)%10 }", "Status": is_hit})
-            
-            st.table(pd.DataFrame(history_list))
-
-            # --- CURRENT PREDICTION DISPLAY ---
-            st.divider()
-            st.subheader(f"🔮 {target_s} Prediction for {sel_date}")
-            n1, n2 = st.columns(2)
-            with n1:
-                st.success(f"### Single Jodi\n# {jodis[0]}")
-                st.info(f"### Solid Jodi\n# {jodis[1]}")
-            with n2:
-                st.warning(f"### Support Jodis\n{jodis[2]}, {jodis[3]}")
-                st.write(f"**Based on {target_s}'s Base Result:** {current_data.get(target_s, 'XX')}")
-
-        except Exception as e:
-            st.error(f"Data Match Error: {e}")
-else:
-    st.info("Bhai, file upload karo, 5 din ki history aur aaj ki prediction turant dikhegi.")
-    
+        # --- HISTORY TRACKER ---
+        st.markdown("### 📜 Position-Based History (10 Days)")
+        history_list = []
+        for i in range(idx - 10, idx):
+            if i < 0: continue
+            ha, hb = calculate_ab_prediction(df, i, target_s)
+            h_actual = df.iloc[i][target_s]
+            status = check_jodi_hit(ha, hb, h_actual)
+            history_list.append({"Date": df.iloc[i]['DATE'], "Actual": h_actual, "Predicted": f"{ha}{hb}", "Status": status})
+        
+        st.table(pd.DataFrame(history_list))
