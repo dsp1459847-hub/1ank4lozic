@@ -2,9 +2,8 @@ import streamlit as st
 import pandas as pd
 
 # Page Setup
-st.set_page_config(page_title="MAYA v30.0 - Step-Jump Engine", layout="wide")
+st.set_page_config(page_title="MAYA v31.0 - Infinite Search", layout="wide")
 
-# Custom UI Styling
 st.markdown("""
     <style>
     .formula-container { display: flex; align-items: center; justify-content: center; gap: 15px; margin-bottom: 20px; }
@@ -21,60 +20,68 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🎯 MAYA v30.0 (Step-Jump Logic)")
+st.title("🎯 MAYA v31.0 (Infinite Timeframe Search)")
 
-# --- STEP-JUMP BASE SELECTION ---
-def get_step_jump_base(df, idx, col_name):
-    """Aapke bataye timeframe ke hisaab se pichla valid data dhoondhna"""
-    # 1. Pehle 1-step piche dekho (Kal)
-    # 2. Phir 2-step piche (Parson)
-    # 3. Phir 7-step piche (Pichla Same Day)
+# --- INFINITE BASE SEARCH ---
+def get_infinite_base(df, idx, col_name):
+    """Jab tak asli number na mile, piche jump maarte raho"""
+    # Steps: 1 din piche, 2 din, 7 din, 14 din, 30 din
+    search_steps = [1, 2, 7, 14, 30, 3, 4, 5, 6]
     
-    jumps = [1, 2, 7, 3, 5] # Steps to check if current is empty
-    for jump in jumps:
-        target_idx = idx - jump
-        if target_idx >= 0:
-            val = df.iloc[target_idx].get(col_name, "XX")
-            if pd.notna(val) and str(val).upper() != 'XX' and str(val) != '0' and str(val) != '00':
+    for step in search_steps:
+        t_idx = idx - step
+        if t_idx >= 0:
+            val = df.iloc[t_idx].get(col_name, "XX")
+            # Strict Check: Khali, XX, 0, ya 00 nahi hona chahiye
+            if pd.notna(val) and str(val).upper() != 'XX' and str(val) not in ['0', '00', '0.0', '']:
                 try:
-                    return int(float(str(val).split('.')[0]))
+                    num = int(float(str(val).split('.')[0]))
+                    if num > 0: return num # Sirf tab return karo jab 0 se bada ho
                 except: continue
-    return 0
+                
+    # Agar phir bhi nahi milta, toh kisi bhi shift ka pichla best result uthao
+    game_cols = ['DS', 'FB', 'GB', 'GL', 'DB', 'SG']
+    for col in game_cols:
+        val = df.iloc[idx-1].get(col, "XX") if idx > 0 else "XX"
+        if str(val).isdigit() and int(val) > 0:
+            return int(val)
+            
+    return 14 # Ultimate fallback taaki 00 na aaye
 
-def calculate_step_jump_logic(df, idx, shift):
+def calculate_logic_v31(df, idx, shift):
     game_cols = ['DS', 'FB', 'GB', 'GL', 'DB', 'SG']
     flow = {'FB': 'DS', 'GB': 'FB', 'GL': 'GB', 'DS': 'GL', 'SG': 'DB', 'DB': 'GL'}
     base_col = flow.get(shift, 'DS')
     
-    # Base Value using Jump Logic
-    base_val = get_step_jump_base(df, idx, base_col)
+    # Base Value Selection
+    base_val = get_infinite_base(df, idx, base_col)
     
     d1, d2 = base_val // 10, base_val % 10
     scores_a, scores_b = {i: 0 for i in range(10)}, {i: 0 for i in range(10)}
     
-    # Pattern Logic (v12.5 Base)
-    if d1 == d2 and base_val > 0:
-        scores_a[0] += 22; scores_a[5] += 22
+    # Accuracy Logic (v12.5 Weights)
+    if d1 == d2:
+        scores_a[0] += 20; scores_a[5] += 20
     elif abs(d1 - d2) == 1:
         nxt = (max(d1, d2) + 1) % 10
-        scores_a[nxt] += 20; scores_b[(nxt+5)%10] += 15
+        scores_a[nxt] += 18; scores_b[(nxt+5)%10] += 15
     else:
         scores_a[d2] += 15; scores_b[(d2+5)%10] += 12
     
-    # Gap Analysis (Step-based variety)
-    recent = []
-    for jump in [1, 2, 3, 5, 7, 10]: # Jumps for gap analysis
+    # Multi-Timeframe Gap Analysis (Variety Fix)
+    pool = ""
+    for jump in [1, 7, 14]: # Aaj, Pichla hafta, usse pichla hafta
         if idx - jump >= 0:
-            recent.append(df.iloc[idx-jump].get(shift, "XX"))
-    
-    pool = "".join([str(item).split('.')[0] for item in recent if str(item).isdigit()])
+            row_data = "".join([str(x).split('.')[0] for x in df.iloc[idx-jump][game_cols].values if str(x).isdigit()])
+            pool += row_data
+            
     for i in range(10):
         if str(i) not in pool:
-            scores_a[i] += 18; scores_b[i] += 18
+            scores_a[i] += 15; scores_b[i] += 15
 
     return max(scores_a, key=scores_a.get), max(scores_b, key=scores_b.get)
 
-# --- INTERFACE ---
+# --- UI ---
 uploaded_file = st.file_uploader("📂 Upload 0DSP0 File", type=["csv", "xlsx"])
 
 if uploaded_file:
@@ -88,7 +95,7 @@ if uploaded_file:
     with c2: target_s = st.selectbox("🎰 Shift:", options=['DS', 'FB', 'GB', 'GL', 'DB', 'SG'])
     
     idx = df[df['DATE'] == sel_date].index[0]
-    p_a, p_b = calculate_step_jump_logic(df, idx, target_s)
+    p_a, p_b = calculate_logic_v31(df, idx, target_s)
     r_a, r_b = (p_a + 5) % 10, (p_b + 5) % 10
 
     actual_val = df.iloc[idx].get(target_s, "XX")
@@ -98,16 +105,15 @@ if uploaded_file:
     if clean_act.isdigit():
         v = int(clean_act); act_a, act_b = v // 10, v % 10
 
-    # Colors
     c_a = "green" if act_a == p_a else ("yellow" if act_a == r_a else "red")
     c_b = "green" if act_b == p_b else ("yellow" if act_b == r_b else "red")
     if clean_act == "XX": c_a = c_b = "gray"
 
-    with c3: st.metric(f"Live Result {target_s}", clean_act)
+    with c3: st.metric(f"Result {target_s}", clean_act)
 
     st.divider()
 
-    # --- FORMULA ---
+    # Formula Display
     st.markdown(f"""
     <div class="formula-container">
         <div class="box-wrapper"><div class="label-top">ANDAR (A)</div><div class="box {c_a}">{p_a}</div><div class="label-rashi">R: {r_a}</div></div>
@@ -118,12 +124,12 @@ if uploaded_file:
     </div>
     """, unsafe_allow_html=True)
 
-    # --- HISTORY ---
-    st.subheader(f"📜 {target_s} Step-Jump Tracker")
+    # History
+    st.subheader(f"📜 {target_s} Performance Tracker")
     history = []
     for i in range(idx - 10, idx + 1):
         if i < 0: continue
-        ha, hb = calculate_step_jump_logic(df, i, target_s)
+        ha, hb = calculate_logic_v31(df, i, target_s)
         h_act = str(df.iloc[i][target_s]).split('.')[0]
         try:
             if h_act.isdigit():
