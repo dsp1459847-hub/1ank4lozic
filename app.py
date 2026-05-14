@@ -2,8 +2,9 @@ import streamlit as st
 import pandas as pd
 
 # Page Setup
-st.set_page_config(page_title="MAYA v28.0 - TimeShift Pro", layout="wide")
+st.set_page_config(page_title="MAYA v29.0 - Multi-Engine Master", layout="wide")
 
+# Custom UI Styling
 st.markdown("""
     <style>
     .formula-container { display: flex; align-items: center; justify-content: center; gap: 15px; margin-bottom: 20px; }
@@ -20,54 +21,62 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🎯 MAYA v28.0 (Dynamic Time-Frame Shift)")
+st.title("🎯 MAYA v29.0 (Specialist Shift Engines)")
 
-# --- CLEANING & TIME-SHIFT LOGIC ---
-def get_safe_base(df, idx, shift):
+# --- SPECIALIST LOGIC ENGINES ---
+
+def get_engine_weights(shift):
+    """Har shift ke liye alag weights (Tuning)"""
+    # [Pattern_Weight, Gap_Weight, Mirror_Weight]
+    engines = {
+        'DS': [25, 22, 15],  # Desawar: Gap aur Pattern heavy
+        'FB': [20, 18, 12],  # Faridabad: Pattern heavy
+        'GB': [18, 25, 10],  # Ghaziabad: Gap heavy
+        'GL': [22, 20, 15],  # Gali: Balanced
+        'DB': [15, 20, 10],  # Delhi Bazar: Gap oriented
+        'SG': [15, 20, 10]   # Shri Ganesh: Gap oriented
+    }
+    return engines.get(shift, [20, 18, 12])
+
+def calculate_specialist_logic(df, idx, shift):
+    game_cols = ['DS', 'FB', 'GB', 'GL', 'DB', 'SG']
     flow = {'FB': 'DS', 'GB': 'FB', 'GL': 'GB', 'DS': 'GL', 'SG': 'DB', 'DB': 'GL'}
     base_col = flow.get(shift, 'DS')
     
-    # Pehle usi din ka base dekho
+    # Time-Frame Shift Base Selection
     val = df.iloc[idx].get(base_col, "XX")
-    
-    # Agar aaj ka base khali hai ya XX hai, toh ek din piche (Time-Frame Shift)
     if pd.isna(val) or str(val).upper() == 'XX' or val == 0:
-        if idx > 0:
-            val = df.iloc[idx-1].get(base_col, 0)
+        val = df.iloc[idx-1].get(base_col, 0) if idx > 0 else 0
     
-    # String cleaning (0000 problem fix)
     try:
-        clean_val = int(float(str(val).split('.')[0]) if pd.notna(val) and str(val).upper() != 'XX' else 0)
-    except: clean_val = 0
-    return clean_val
-
-def calculate_logic_v28(df, idx, shift):
-    game_cols = ['DS', 'FB', 'GB', 'GL', 'DB', 'SG']
-    base_val = get_safe_base(df, idx, shift)
+        base_val = int(float(str(val).split('.')[0]))
+    except: base_val = 0
     
     d1, d2 = base_val // 10, base_val % 10
     scores_a, scores_b = {i: 0 for i in range(10)}, {i: 0 for i in range(10)}
     
-    # v12.5 Core Weights
+    # Get Weights for this specific shift
+    w_pattern, w_gap, w_mirror = get_engine_weights(shift)
+    
+    # 1. Pattern Logic
     if d1 == d2 and base_val > 0:
-        scores_a[0] += 20; scores_a[5] += 20
-        scores_b[0] += 20; scores_b[5] += 20
+        scores_a[0] += w_pattern; scores_a[5] += w_pattern
     elif abs(d1 - d2) == 1:
         nxt = (max(d1, d2) + 1) % 10
-        scores_a[nxt] += 15; scores_b[(nxt+5)%10] += 12
+        scores_a[nxt] += w_pattern; scores_b[(nxt+5)%10] += w_mirror
     else:
-        scores_a[d2] += 12; scores_b[(d2+5)%10] += 10
+        scores_a[d2] += w_pattern; scores_b[(d2+5)%10] += w_mirror
     
-    # Gap Analysis across shifts (Last 12 records)
+    # 2. Gap Logic (Shift Specific)
     recent = df.iloc[:idx+1].tail(12)[game_cols].values.flatten()
     pool = "".join([str(item).split('.')[0] for item in recent if str(item).split('.')[0].isdigit()])
     for i in range(10):
         if str(i) not in pool:
-            scores_a[i] += 18; scores_b[i] += 18
+            scores_a[i] += w_gap; scores_b[i] += w_gap
 
     return max(scores_a, key=scores_a.get), max(scores_b, key=scores_b.get)
 
-# --- APP INTERFACE ---
+# --- INTERFACE ---
 uploaded_file = st.file_uploader("📂 Upload 0DSP0 File", type=["csv", "xlsx"])
 
 if uploaded_file:
@@ -81,10 +90,9 @@ if uploaded_file:
     with c2: target_s = st.selectbox("🎰 Shift:", options=['DS', 'FB', 'GB', 'GL', 'DB', 'SG'])
     
     idx = df[df['DATE'] == sel_date].index[0]
-    p_a, p_b = calculate_logic_v28(df, idx, target_s)
+    p_a, p_b = calculate_specialist_logic(df, idx, target_s)
     r_a, r_b = (p_a + 5) % 10, (p_b + 5) % 10
 
-    # Live Result Display Fix
     actual_val = df.iloc[idx].get(target_s, "XX")
     clean_act = str(actual_val).split('.')[0] if pd.notna(actual_val) and str(actual_val).upper() != 'XX' else "XX"
     
@@ -92,16 +100,15 @@ if uploaded_file:
     if clean_act.isdigit():
         v = int(clean_act); act_a, act_b = v // 10, v % 10
 
-    # Colors
     c_a = "green" if act_a == p_a else ("yellow" if act_a == r_a else "red")
     c_b = "green" if act_b == p_b else ("yellow" if act_b == r_b else "red")
     if clean_act == "XX": c_a = c_b = "gray"
 
-    with c3: st.metric(f"Live {target_s}", clean_act)
+    with c3: st.metric(f"Live Result {target_s}", clean_act)
 
     st.divider()
 
-    # --- FORMULA ---
+    # --- THE FORMULA DISPLAY ---
     st.markdown(f"""
     <div class="formula-container">
         <div class="box-wrapper"><div class="label-top">ANDAR (A)</div><div class="box {c_a}">{p_a}</div><div class="label-rashi">R: {r_a}</div></div>
@@ -113,11 +120,11 @@ if uploaded_file:
     """, unsafe_allow_html=True)
 
     # --- HISTORY ---
-    st.subheader("📜 Live Backtest History")
+    st.subheader(f"📜 {target_s} Specialist Engine History")
     history = []
     for i in range(idx - 10, idx + 1):
         if i < 0: continue
-        ha, hb = calculate_logic_v28(df, i, target_s)
+        ha, hb = calculate_specialist_logic(df, i, target_s)
         h_act = str(df.iloc[i][target_s]).split('.')[0]
         try:
             if h_act.isdigit():
@@ -131,4 +138,4 @@ if uploaded_file:
         except: s = "⏳"
         history.append({"Date": df.iloc[i]['DATE'], "Result": h_act, "AI Pred": f"{ha}+{hb}", "Status": s})
     st.table(pd.DataFrame(history))
-             
+        
