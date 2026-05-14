@@ -1,71 +1,137 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 
 # Page Configuration
-st.set_page_config(page_title="MAYA v27.0 - Deep Scan Edition", layout="wide")
+st.set_page_config(page_title="MAYA v27.5 - Deep Scan Fixed", layout="wide")
 
+# Custom UI Styling
+st.markdown("""
+    <style>
+    .formula-container { display: flex; align-items: center; justify-content: center; gap: 15px; margin-bottom: 20px; }
+    .box-wrapper { display: flex; flex-direction: column; align-items: center; }
+    .box { width: 95px; height: 95px; display: flex; align-items: center; justify-content: center; 
+           font-size: 45px; font-weight: bold; border-radius: 15px; color: white; border: 3px solid #555; }
+    .plus-equal { font-size: 55px; font-weight: bold; color: #fff; padding-top: 15px; }
+    .green { background-color: #28a745 !important; box-shadow: 0 0 20px #28a745; }
+    .yellow { background-color: #ffc107 !important; color: black !important; box-shadow: 0 0 20px #ffc107; }
+    .red { background-color: #dc3545 !important; }
+    .gray { background-color: #333 !important; border: 3px dashed #666; }
+    .label-top { font-size: 16px; margin-bottom: 5px; font-weight: bold; color: #bbb; }
+    .label-rashi { font-size: 20px; margin-top: 10px; font-weight: bold; color: #ffc107; background: #111; padding: 4px 12px; border-radius: 6px; }
+    </style>
+    """, unsafe_allow_html=True)
+
+st.title("🎯 MAYA v27.5 (Deep Scan & Resampling)")
+
+# --- ERROR-PROOF DATA CLEANING ---
+def clean_series(series):
+    # 'XX' ya kisi bhi text ko NaN bana dena, fir 0 se replace karna
+    return pd.to_numeric(series, errors='coerce').fillna(0).astype(int)
+
+# --- DEEP SCAN LOGIC (STRICT) ---
 def calculate_deep_scan_logic(df, idx, shift):
-    # Sirf usi shift ka pura pichla data uthana
-    shift_history = df[shift].iloc[:idx+1].replace('XX', 0).fillna(0).astype(float).astype(int)
+    game_cols = ['DS', 'FB', 'GB', 'GL', 'DB', 'SG']
     
-    # 1. Position Analysis (Last 20 Days)
-    # Dekhna ki Andar zyada pass ho raha hai ya Bahar
-    recent_20 = shift_history.tail(20)
+    # Selected Shift ki history saaf karna
+    shift_history = clean_series(df[shift].iloc[:idx+1])
     
-    # Base Value (Last Result of same shift)
-    base_val = shift_history.iloc[-1] if not shift_history.empty else 0
+    # Base Value (Current Logic)
+    flow = {'FB': 'DS', 'GB': 'FB', 'GL': 'GB', 'DS': 'GL', 'SG': 'DB', 'DB': 'GL'}
+    base_col = flow.get(shift, 'DS')
+    base_val = clean_series(df[base_col]).iloc[idx] if idx < len(df) else 0
+    
     d1, d2 = base_val // 10, base_val % 10
+    scores_a, scores_b = {i: 0 for i in range(10)}, {i: 0 for i in range(10)}
     
-    scores_a = {i: 0 for i in range(10)}
-    scores_b = {i: 0 for i in range(10)}
+    # 1. v12.5 Pattern Weights (Andar/Bahar)
+    if d1 == d2 and base_val > 0:
+        scores_a[0] += 20; scores_a[5] += 20
+        scores_b[0] += 20; scores_b[5] += 20
+    elif abs(d1 - d2) == 1:
+        nxt = (max(d1, d2) + 1) % 10
+        scores_a[nxt] += 15; scores_b[(nxt+5)%10] += 12
+    else:
+        scores_a[d2] += 12; scores_b[(d2+5)%10] += 10
     
-    # --- DEEP PATTERN RULES ---
-    # Rule A: Movement Pattern (Agar 1 chhota 1 bada chal raha ho)
-    for i in range(1, len(recent_20)):
-        diff = abs(recent_20.iloc[i] - recent_20.iloc[i-1])
-        if diff < 10: # Narrow range movement
-            scores_a[d1] += 10
-            scores_b[d2] += 10
-            
-    # Rule B: Mirror/Rashi Sync
-    r_d1, r_d2 = (d1+5)%10, (d2+5)%10
-    scores_a[r_d1] += 15
-    scores_b[r_d2] += 15
-    
-    # Rule C: Gap Analysis (Single Shift Specific)
-    pool = "".join([str(x).zfill(2) for x in recent_20.tail(10)])
+    # 2. Single Shift Gap Analysis (Last 15 records)
+    recent_15 = shift_history.tail(15)
+    pool = "".join([str(int(x)).zfill(2) for x in recent_15])
     for i in range(10):
         if str(i) not in pool:
-            scores_a[i] += 20
-            scores_b[i] += 20
+            scores_a[i] += 18
+            scores_b[i] += 18
 
     best_a = max(scores_a, key=scores_a.get)
     best_b = max(scores_b, key=scores_b.get)
     
     return best_a, best_b
 
-# --- UI DISPLAY (AS PER YOUR DESIGN) ---
-st.title("🎯 MAYA v27.0 (Deep Scan & Resampling)")
-
-uploaded_file = st.file_uploader("📂 Upload Excel", type=["xlsx", "csv"])
+# --- DATA LOADER ---
+uploaded_file = st.file_uploader("📂 Upload 0DSP0 File", type=["csv", "xlsx"])
 
 if uploaded_file:
-    df = pd.read_excel(uploaded_file) if uploaded_file.name.endswith('.xlsx') else pd.read_csv(uploaded_file)
-    df.columns = [str(c).strip().upper() for c in df.columns]
-    df = df.rename(columns={'FD': 'FB', 'GD': 'GB'})
-    
-    c1, c2 = st.columns(2)
-    with c1: sel_date = st.selectbox("📅 Date:", df['DATE'].astype(str).unique().tolist()[::-1])
-    with c2: target_s = st.selectbox("🎰 Shift:", ['DS', 'FB', 'GB', 'GL', 'DB', 'SG'])
-    
-    idx = df[df['DATE'].astype(str) == sel_date].index[0]
-    p_a, p_b = calculate_deep_scan_logic(df, idx, target_s)
-    
-    # Display Logic
-    st.divider()
-    st.markdown(f"### [ {p_a} ] + [ {p_b} ] = Jodi: **{p_a}{p_b}**")
-    
-    # Comparison and 10-day history
-    st.subheader("📜 Efficiency Check (Last 10 Months/Days Analysis)")
-    # (Yahan history table wahi ✅/❌ ticks ke saath aayegi)
-    
+    try:
+        df = pd.read_excel(uploaded_file) if uploaded_file.name.endswith('.xlsx') else pd.read_csv(uploaded_file)
+        df.columns = [str(c).strip().upper() for c in df.columns]
+        df = df.rename(columns={'FD': 'FB', 'GD': 'GB', 'FBD': 'FB', 'GZB': 'GB'})
+        df['DATE'] = df['DATE'].astype(str).str.strip()
+        
+        c1, c2, c3 = st.columns([2, 2, 2])
+        with c1: sel_date = st.selectbox("📅 Date:", options=df['DATE'].unique().tolist()[::-1])
+        with c2: target_s = st.selectbox("🎰 Shift:", options=['DS', 'FB', 'GB', 'GL', 'DB', 'SG'])
+        
+        idx = df[df['DATE'] == sel_date].index[0]
+        p_a, p_b = calculate_deep_scan_logic(df, idx, target_s)
+        r_a, r_b = (p_a + 5) % 10, (p_b + 5) % 10
+
+        # Result Logic
+        actual_val = df.iloc[idx].get(target_s, "XX")
+        clean_act = str(actual_val).split('.')[0] if pd.notna(actual_val) and str(actual_val).upper() != 'XX' else "XX"
+        
+        act_a, act_b = None, None
+        if clean_act.isdigit():
+            v = int(clean_act); act_a, act_b = v // 10, v % 10
+
+        # Colors
+        c_a = "green" if act_a == p_a else ("yellow" if act_a == r_a else "red")
+        c_b = "green" if act_b == p_b else ("yellow" if act_b == r_b else "red")
+        if clean_act == "XX": c_a = c_b = "gray"
+
+        with c3: st.metric(f"Result {target_s}", clean_act)
+
+        st.divider()
+
+        # --- DISPLAY ---
+        st.markdown(f"""
+        <div class="formula-container">
+            <div class="box-wrapper"><div class="label-top">ANDAR (A)</div><div class="box {c_a}">{p_a}</div><div class="label-rashi">R: {r_a}</div></div>
+            <div class="plus-equal">+</div>
+            <div class="box-wrapper"><div class="label-top">BAHAR (B)</div><div class="box {c_b}">{p_b}</div><div class="label-rashi">R: {r_b}</div></div>
+            <div class="plus-equal">=</div>
+            <div class="box-wrapper"><div class="label-top">JODI</div><div class="box {'green' if c_a=='green' and c_b=='green' else ('yellow' if 'yellow' in [c_a, c_b] else ('red' if c_a!='gray' else 'gray'))}">{p_a}{p_b}</div><div class="label-rashi">F: {r_a}{r_b}</div></div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # --- HISTORY ---
+        st.subheader("📜 11-Day Deep Scan History")
+        history = []
+        for i in range(idx - 11, idx + 1):
+            if i < 0: continue
+            ha, hb = calculate_deep_scan_logic(df, i, target_s)
+            h_act = str(df.iloc[i][target_s]).split('.')[0]
+            try:
+                if h_act.isdigit():
+                    hv = int(h_act); ha_act, hb_act = hv//10, hv%10
+                    ra, rb = (ha+5)%10, (hb+5)%10
+                    if ha_act == ha and hb_act == hb: s = "💎 DIRECT"
+                    elif (ha_act in [ha, ra]) and (hb_act in [hb, rb]): s = "👪 FAMILY"
+                    elif (ha_act in [ha, ra]) or (hb_act in [hb, rb]): s = "🎯 ANK"
+                    else: s = "❌"
+                else: s = "⏳"
+            except: s = "⏳"
+            history.append({"Date": df.iloc[i]['DATE'], "Result": h_act, "AI Pred": f"{ha}+{hb}", "Status": s})
+        st.table(pd.DataFrame(history))
+
+    except Exception as e:
+        st.error(f"Error: {e}")
