@@ -2,8 +2,9 @@ import streamlit as st
 import pandas as pd
 
 # Page Setup
-st.set_page_config(page_title="MAYA v31.0 - Infinite Search", layout="wide")
+st.set_page_config(page_title="MAYA v33.0 - Smart Scanner", layout="wide")
 
+# Custom UI Styling
 st.markdown("""
     <style>
     .formula-container { display: flex; align-items: center; justify-content: center; gap: 15px; margin-bottom: 20px; }
@@ -17,71 +18,72 @@ st.markdown("""
     .gray { background-color: #333 !important; border: 3px dashed #666; }
     .label-top { font-size: 16px; margin-bottom: 5px; font-weight: bold; color: #bbb; }
     .label-rashi { font-size: 18px; margin-top: 8px; font-weight: bold; color: #ffc107; background: #111; padding: 4px 12px; border-radius: 6px; }
+    .best-frame { background: #1e1e1e; padding: 10px; border-left: 5px solid #28a745; margin-bottom: 20px; border-radius: 5px; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🎯 MAYA v31.0 (Infinite Timeframe Search)")
+st.title("🎯 MAYA v33.0 (Smart Timeframe Scanner)")
 
-# --- INFINITE BASE SEARCH ---
-def get_infinite_base(df, idx, col_name):
-    """Jab tak asli number na mile, piche jump maarte raho"""
-    # Steps: 1 din piche, 2 din, 7 din, 14 din, 30 din
-    search_steps = [1, 2, 7, 14, 30, 3, 4, 5, 6]
+# --- LOGIC CORE ---
+def get_prediction_by_gap(df, idx, col, gap):
+    """Specific gap timeframe se prediction nikalna"""
+    target_idx = idx - gap
+    if target_idx < 0: return None, None
     
-    for step in search_steps:
-        t_idx = idx - step
-        if t_idx >= 0:
-            val = df.iloc[t_idx].get(col_name, "XX")
-            # Strict Check: Khali, XX, 0, ya 00 nahi hona chahiye
-            if pd.notna(val) and str(val).upper() != 'XX' and str(val) not in ['0', '00', '0.0', '']:
-                try:
-                    num = int(float(str(val).split('.')[0]))
-                    if num > 0: return num # Sirf tab return karo jab 0 se bada ho
-                except: continue
-                
-    # Agar phir bhi nahi milta, toh kisi bhi shift ka pichla best result uthao
-    game_cols = ['DS', 'FB', 'GB', 'GL', 'DB', 'SG']
-    for col in game_cols:
-        val = df.iloc[idx-1].get(col, "XX") if idx > 0 else "XX"
-        if str(val).isdigit() and int(val) > 0:
-            return int(val)
-            
-    return 14 # Ultimate fallback taaki 00 na aaye
+    val = df.iloc[target_idx].get(col, "XX")
+    try:
+        base_val = int(float(str(val).split('.')[0]))
+        if base_val == 0: return None, None
+    except: return None, None
 
-def calculate_logic_v31(df, idx, shift):
-    game_cols = ['DS', 'FB', 'GB', 'GL', 'DB', 'SG']
-    flow = {'FB': 'DS', 'GB': 'FB', 'GL': 'GB', 'DS': 'GL', 'SG': 'DB', 'DB': 'GL'}
-    base_col = flow.get(shift, 'DS')
-    
-    # Base Value Selection
-    base_val = get_infinite_base(df, idx, base_col)
-    
     d1, d2 = base_val // 10, base_val % 10
-    scores_a, scores_b = {i: 0 for i in range(10)}, {i: 0 for i in range(10)}
+    s_a, s_b = {i: 0 for i in range(10)}, {i: 0 for i in range(10)}
     
-    # Accuracy Logic (v12.5 Weights)
-    if d1 == d2:
-        scores_a[0] += 20; scores_a[5] += 20
-    elif abs(d1 - d2) == 1:
-        nxt = (max(d1, d2) + 1) % 10
-        scores_a[nxt] += 18; scores_b[(nxt+5)%10] += 15
-    else:
-        scores_a[d2] += 15; scores_b[(d2+5)%10] += 12
+    # Pattern Logic
+    if d1 == d2: s_a[0]+=20; s_a[5]+=20
+    elif abs(d1-d2)==1: s_a[(max(d1,d2)+1)%10]+=18; s_b[(max(d1,d2)+6)%10]+=15
+    else: s_a[d2]+=15; s_b[(d2+5)%10]+=12
     
-    # Multi-Timeframe Gap Analysis (Variety Fix)
-    pool = ""
-    for jump in [1, 7, 14]: # Aaj, Pichla hafta, usse pichla hafta
-        if idx - jump >= 0:
-            row_data = "".join([str(x).split('.')[0] for x in df.iloc[idx-jump][game_cols].values if str(x).isdigit()])
-            pool += row_data
+    return max(s_a, key=s_a.get), max(s_b, key=s_b.get)
+
+def auto_scan_best_timeframe(df, idx, shift):
+    """Sare timeframes scan karke sabse best accuracy wala chunna"""
+    timeframes = {
+        "Yesterday (1-Day)": 1,
+        "Day Before (2-Day)": 2,
+        "Step Gap (3-Day)": 3,
+        "Jump Gap (5-Day)": 5,
+        "Weekly (7-Day)": 7
+    }
+    
+    best_frame = "Yesterday (1-Day)"
+    max_score = -1
+    final_pred = (0, 5)
+
+    for name, gap in timeframes.items():
+        score = 0
+        # Pichle 10 records par test run
+        for check_idx in range(idx-10, idx):
+            if check_idx < 10: continue
+            pa, pb = get_prediction_by_gap(df, check_idx, shift, gap)
+            if pa is None: continue
             
-    for i in range(10):
-        if str(i) not in pool:
-            scores_a[i] += 15; scores_b[i] += 15
+            act = str(df.iloc[check_idx].get(shift, "XX")).split('.')[0]
+            if act.isdigit():
+                v = int(act); aa, ab = v//10, v%10
+                if aa == pa and ab == pb: score += 10 # Direct
+                elif aa in [pa, (pa+5)%10] and ab in [pb, (pb+5)%10]: score += 5 # Family
+        
+        if score > max_score:
+            max_score = score
+            best_frame = name
+            current_pa, current_pb = get_prediction_by_gap(df, idx, shift, gap)
+            if current_pa is not None:
+                final_pred = (current_pa, current_pb)
 
-    return max(scores_a, key=scores_a.get), max(scores_b, key=scores_b.get)
+    return best_frame, final_pred
 
-# --- UI ---
+# --- INTERFACE ---
 uploaded_file = st.file_uploader("📂 Upload 0DSP0 File", type=["csv", "xlsx"])
 
 if uploaded_file:
@@ -95,9 +97,15 @@ if uploaded_file:
     with c2: target_s = st.selectbox("🎰 Shift:", options=['DS', 'FB', 'GB', 'GL', 'DB', 'SG'])
     
     idx = df[df['DATE'] == sel_date].index[0]
-    p_a, p_b = calculate_logic_v31(df, idx, target_s)
+    
+    # Run Auto-Scanner
+    best_name, (p_a, p_b) = auto_scan_best_timeframe(df, idx, target_s)
     r_a, r_b = (p_a + 5) % 10, (p_b + 5) % 10
 
+    with c3:
+        st.markdown(f'<div class="best-frame"><b>Best Timeframe:</b><br>{best_name}</div>', unsafe_allow_html=True)
+
+    # UI Result
     actual_val = df.iloc[idx].get(target_s, "XX")
     clean_act = str(actual_val).split('.')[0] if pd.notna(actual_val) and str(actual_val).upper() != 'XX' else "XX"
     
@@ -107,13 +115,10 @@ if uploaded_file:
 
     c_a = "green" if act_a == p_a else ("yellow" if act_a == r_a else "red")
     c_b = "green" if act_b == p_b else ("yellow" if act_b == r_b else "red")
-    if clean_act == "XX": c_a = c_b = "gray"
-
-    with c3: st.metric(f"Result {target_s}", clean_act)
+    if clean_act == "XX" or clean_act == "0": c_a = c_b = "gray"
 
     st.divider()
 
-    # Formula Display
     st.markdown(f"""
     <div class="formula-container">
         <div class="box-wrapper"><div class="label-top">ANDAR (A)</div><div class="box {c_a}">{p_a}</div><div class="label-rashi">R: {r_a}</div></div>
@@ -124,12 +129,15 @@ if uploaded_file:
     </div>
     """, unsafe_allow_html=True)
 
-    # History
-    st.subheader(f"📜 {target_s} Performance Tracker")
+    # Backtest History
+    st.subheader(f"📜 {target_s} Scanner Backtest (Based on {best_name})")
     history = []
+    gap_val = {"Yesterday (1-Day)": 1, "Day Before (2-Day)": 2, "Step Gap (3-Day)": 3, "Jump Gap (5-Day)": 5, "Weekly (7-Day)": 7}[best_name]
+    
     for i in range(idx - 10, idx + 1):
-        if i < 0: continue
-        ha, hb = calculate_logic_v31(df, i, target_s)
+        if i < 10: continue
+        ha, hb = get_prediction_by_gap(df, i, target_s, gap_val)
+        if ha is None: continue
         h_act = str(df.iloc[i][target_s]).split('.')[0]
         try:
             if h_act.isdigit():
@@ -143,4 +151,4 @@ if uploaded_file:
         except: s = "⏳"
         history.append({"Date": df.iloc[i]['DATE'], "Result": h_act, "AI Pred": f"{ha}+{hb}", "Status": s})
     st.table(pd.DataFrame(history))
-    
+            
