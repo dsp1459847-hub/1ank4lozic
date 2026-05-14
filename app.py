@@ -100,4 +100,4 @@ if uploaded_file:
             history_list.append({"Date": df.iloc[i]['DATE'], "Actual": h_actual, "Predicted": f"{ha}{hb}", "Status": status})
         
         st.table(pd.DataFrame(history_list))
-                     
+        
