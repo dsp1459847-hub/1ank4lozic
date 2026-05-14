@@ -1,51 +1,42 @@
 import streamlit as st
 import pandas as pd
 
-# Page Setup
-st.set_page_config(page_title="MAYA v42.0 - 5x5 Elimination", layout="wide")
+# Page Config - Phone Friendly
+st.set_page_config(page_title="MAYA v43.0", layout="wide")
 
-# Custom UI Styling
+# Custom CSS for Mobile Optimization
 st.markdown("""
     <style>
+    html, body, [class*="ViewContainer"] { font-size: 14px !important; }
+    .stTable { font-size: 12px !important; }
     .target-grid { 
         display: grid; grid-template-columns: repeat(5, 1fr); 
-        gap: 12px; max-width: 450px; margin: 0 auto; 
+        gap: 6px; width: 100%; margin: 0 auto; 
     }
     .target-item { 
-        background-color: #f0fdf4; color: #166534; padding: 15px; 
-        border-radius: 10px; font-size: 24px; font-weight: bold; 
-        text-align: center; border: 2px solid #bbf7d0;
-    }
-    .stat-card {
-        background: #ffffff; padding: 20px; border-radius: 12px;
-        border-left: 6px solid #ef4444; box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        background-color: #f0fdf4; color: #166534; padding: 8px; 
+        border-radius: 6px; font-size: 16px; font-weight: bold; 
+        text-align: center; border: 1px solid #bbf7d0;
     }
     .ank-circle {
-        display: inline-block; width: 45px; height: 45px; line-height: 45px;
+        display: inline-block; width: 32px; height: 32px; line-height: 32px;
         border-radius: 50%; background: #fee2e2; color: #b91c1c;
-        text-align: center; font-weight: bold; margin: 4px; border: 1px solid #fecaca;
+        text-align: center; font-weight: bold; margin: 2px; font-size: 14px; border: 1px solid #fecaca;
     }
+    .status-pass { color: #28a745; font-weight: bold; }
+    .status-fail { color: #dc3545; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🎯 MAYA v42.0 (5x5 Elimination - High Accuracy)")
+st.title("🎯 MAYA v43.0 (Compact UI)")
 
-def get_worst_digit(df, idx, col, gap):
-    """Sabse bekar timeframe se ek ank uthana"""
-    t_idx = idx - gap
-    if t_idx < 0: return None
-    val = df.iloc[t_idx].get(col, 0)
-    try:
-        return int(float(str(val).split('.')[0])) % 10
-    except: return None
-
-def calculate_5x5_logic(df, idx, shift):
+def get_logic_v43(df, idx, shift):
     flow = {'FB': 'DS', 'GB': 'FB', 'GL': 'GB', 'DS': 'GL', 'SG': 'DB', 'DB': 'GL'}
     base_col = flow.get(shift, 'DS')
     
-    # 1. Main 4 Digits (v37 Logic)
+    # 1. Base Find
     val = 0
-    for i in range(1, 10):
+    for i in range(1, 15):
         t_idx = idx - i
         if t_idx >= 0:
             raw = df.iloc[t_idx].get(base_col, 0)
@@ -57,74 +48,71 @@ def calculate_5x5_logic(df, idx, shift):
     pb = (d2 + 1) % 10
     ra, rb = (pa + 5) % 10, (pb + 5) % 10
     
-    andar_final = {pa, ra}
-    bahar_final = {pb, rb}
+    a_final, b_final = {pa, ra}, {pb, rb}
     
-    # 2. Adding 5th Digit from Worst Timeframes (Jump 3 and Jump 5)
-    w1 = get_worst_digit(df, idx, base_col, 3)
-    w2 = get_worst_digit(df, idx, base_col, 5)
-    
-    if w1 is not None: andar_final.add(w1)
-    if w2 is not None: bahar_final.add(w2)
-    
-    # 3. Filling up to 5 digits if still missing
-    for i in range(10):
-        if len(andar_final) < 5: andar_final.add(i)
-        if len(bahar_final) < 5: bahar_final.add(i)
+    # Worst Gaps (Adding to make it 5x5)
+    for g in [3, 5, 7]:
+        if len(a_final) < 5 and (idx-g) >= 0:
+            v = df.iloc[idx-g].get(base_col, 0)
+            if str(v).isdigit(): a_final.add(int(v)//10)
+        if len(b_final) < 5 and (idx-g) >= 0:
+            v = df.iloc[idx-g].get(base_col, 0)
+            if str(v).isdigit(): b_final.add(int(v)%10)
             
-    # Elimination Logic
+    # Final padding if sets are still small
+    for i in range(10):
+        if len(a_final) < 5: a_final.add(i)
+        if len(b_final) < 5: b_final.add(i)
+
     blocked = set()
-    for a in andar_final:
+    for a in a_final:
         for i in range(10): blocked.add(str(a) + str(i))
-    for b in bahar_final:
+    for b in b_final:
         for i in range(10): blocked.add(str(i) + str(b))
         
     target = [str(i).zfill(2) for i in range(100) if str(i).zfill(2) not in blocked]
-    return sorted(list(andar_final)), sorted(list(bahar_final)), target
+    return sorted(list(a_final)), sorted(list(b_final)), target
 
-uploaded_file = st.file_uploader("📂 Upload 0DSP0 File", type=["csv", "xlsx"])
+uploaded_file = st.file_uploader("📂 Upload File", type=["xlsx", "csv"])
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file) if uploaded_file.name.endswith('.xlsx') else pd.read_csv(uploaded_file)
     df.columns = [str(c).strip().upper() for c in df.columns]
     df = df.rename(columns={'FD': 'FB', 'GD': 'GB', 'FBD': 'FB', 'GZB': 'GB'})
     
-    c1, c2 = st.columns(2)
-    with c1: sel_date = st.selectbox("📅 Date:", options=df['DATE'].astype(str).unique().tolist()[::-1])
-    with c2: target_s = st.selectbox("🎰 Shift:", options=['DS', 'FB', 'GB', 'GL', 'DB', 'SG'])
+    sel_date = st.selectbox("📅 Date:", options=df['DATE'].astype(str).unique().tolist()[::-1])
+    target_s = st.selectbox("🎰 Shift:", options=['DS', 'FB', 'GB', 'GL', 'DB', 'SG'])
     
     idx = df[df['DATE'].astype(str) == sel_date].index[0]
-    final_a, final_b, target_jodis = calculate_5x5_logic(df, idx, target_s)
+    fa, fb, target_jodis = get_logic_v43(df, idx, target_s)
 
-    # --- UI: ELIMINATED ANKS ---
-    st.divider()
-    st.subheader("🚫 Eliminated Digits (5x5)")
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.write("**Andar (Hata diye):**")
-        html_a = "".join([f'<span class="ank-circle">{a}</span>' for a in final_a])
-        st.markdown(html_a, unsafe_allow_html=True)
-    with col_b:
-        st.write("**Bahar (Hata diye):**")
-        html_b = "".join([f'<span class="ank-circle">{b}</span>' for b in final_b])
-        st.markdown(html_b, unsafe_allow_html=True)
+    # UI: Compact Elimination
+    st.write("**🚫 Hata Diye (A/B):**")
+    html_e = "".join([f'<span class="ank-circle">{a}</span>' for a in fa]) + " | " + "".join([f'<span class="ank-circle">{b}</span>' for b in fb])
+    st.markdown(html_e, unsafe_allow_html=True)
 
-    # --- UI: TARGET JODIS (SQUARE GRID) ---
-    st.divider()
-    st.markdown(f"### ✅ Target Jodis (Total {len(target_jodis)})")
+    # UI: 25 Jodis Grid
+    st.write(f"**✅ Target ({len(target_jodis)}):**")
     grid_html = '<div class="target-grid">'
     for jodi in target_jodis:
         grid_html += f'<div class="target-item">{jodi}</div>'
     grid_html += '</div>'
     st.markdown(grid_html, unsafe_allow_html=True)
 
-    # --- PERFORMANCE STATS ---
-    st.divider()
-    st.subheader("📊 Performance Report")
-    st.markdown(f"""
-    <div class="stat-card">
-        <b>Investment:</b> 25 Jodis (Low Risk) | <b>Accuracy:</b> High-Fi (90%+) <br>
-        <i>Pichle 1 saal ka data dikhata hai ki 5x5 elimination mein loss ke chance na ke barabar hain.</i>
-    </div>
-    """, unsafe_allow_html=True)
+    # UI: Fixed History with Pass/Fail
+    st.subheader("📜 Live History (10 Days)")
+    hist_list = []
+    for i in range(idx - 10, idx + 1):
+        if i < 0: continue
+        _, _, h_target = get_logic_v43(df, i, target_s)
+        res_raw = str(df.iloc[i].get(target_s, "XX")).split('.')[0]
+        
+        status = "⏳"
+        if res_raw.isdigit():
+            res_val = str(int(res_raw)).zfill(2)
+            status = "✅ PASS" if res_val in h_target else "❌ FAIL"
+            
+        hist_list.append({"Date": df.iloc[i]['DATE'], "Result": res_raw, "Status": status})
     
+    st.table(pd.DataFrame(hist_list))
+        
